@@ -1,1 +1,15 @@
-package
+{
+  "name": "discord-afk-mimic-bot",
+  "version": "1.0.0",
+  "description": "Discord bot with AFK and Mimic system",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "author": "your-name",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
+  }
+}
