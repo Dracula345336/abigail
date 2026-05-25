@@ -16,12 +16,12 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log(`🔄 Registering ${commands.length} slash command(s)...`);
+    console.log(`🔄 Registering ${commands.length} global slash command(s)...`);
     await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands }
     );
-    console.log('✅ Slash commands registered!');
+    console.log('✅ Global slash commands registered!');
   } catch (error) {
     console.error('❌ Registration failed:', error);
   }
