@@ -4,7 +4,7 @@
   "description": "A romantic Discord bot with AFK & Mimic systems",
   "main": "src/index.js",
   "scripts": {
-    "start": "node bot.js",
+    "start": "node src/index.js",
     "deploy": "node src/deploy-commands.js"
   },
   "author": "Dracula345336",
