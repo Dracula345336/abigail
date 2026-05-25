@@ -55,7 +55,7 @@ When generating the invite link in the Discord Developer Portal, make sure your 
 Create a new table called `afk_users` in your Supabase project:
 
 ```sql
-CREATE TABLE afk_users (
+CREATE TABLE IF NOT EXISTS afk_users (
   user_id TEXT NOT NULL,
   guild_id TEXT NOT NULL,
   afk_time TIMESTAMPTZ NOT NULL,
