@@ -1,6 +1,37 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Events } = require('discord.js');
 const fs = require('fs');
+const path = require('path');
+
+// 🔹 Data file path
+const DATA_PATH = path.join(__dirname, 'data.json');
+
+// 🔹 Default data structure
+const DEFAULT_DATA = {
+  afk: {},
+  mimic: null
+};
+
+// 🔹 Create data.json automatically if missing
+if (!fs.existsSync(DATA_PATH)) {
+  fs.writeFileSync(DATA_PATH, JSON.stringify(DEFAULT_DATA, null, 2));
+}
+
+// 🔹 Load data
+let data = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
+
+// 🔹 Ensure data structure integrity
+if (!data.afk) data.afk = {};
+if (data.mimic === undefined) data.mimic = null;
+
+// 🔹 Save function
+function saveData() {
+  try {
+    fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('Failed to save data:', err);
+  }
+}
 
 // 🔹 Discord Client
 const client = new Client({
@@ -11,127 +42,117 @@ const client = new Client({
   ]
 });
 
-// 🔹 Create data.json automatically if missing
-if (!fs.existsSync('./data.json')) {
-  fs.writeFileSync(
-    './data.json',
-    JSON.stringify(
-      {
-        afk: {},
-        mimic: null
-      },
-      null,
-      2
-    )
-  );
-}
+// 🔹 Error handling
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled promise rejection:', error);
+});
 
-// 🔹 Load data
-let data = JSON.parse(fs.readFileSync('./data.json', 'utf8'));
-
-// 🔹 Save function
-function saveData() {
-  fs.writeFileSync('./data.json', JSON.stringify(data, null, 2));
-}
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+});
 
 // 🔹 Message Event
 client.on('messageCreate', async (msg) => {
   if (msg.author.bot) return;
 
-  // =========================
-  // AFK REMOVE (automatic)
-  // =========================
-  if (data.afk[msg.author.id]) {
-    delete data.afk[msg.author.id];
-    saveData();
-    msg.reply("Welcome back! AFK removed.");
-  }
-
-  // =========================
-  // AFK SET
-  // =========================
-  if (msg.content.startsWith('!afk')) {
-    const reason = msg.content.slice(5).trim() || "AFK";
-
-    data.afk[msg.author.id] = {
-      reason: reason,
-      time: Date.now()
-    };
-
-    saveData();
-
-    return msg.reply(`You are now AFK: ${reason}`);
-  }
-
-  // =========================
-  // AFK BREAK
-  // =========================
-  if (msg.content === '!afkbreak') {
+  try {
+    // =========================
+    // AFK REMOVE (automatic)
+    // =========================
     if (data.afk[msg.author.id]) {
       delete data.afk[msg.author.id];
       saveData();
-
-      return msg.reply("AFK manually removed.");
-    } else {
-      return msg.reply("You are not AFK.");
+      await msg.reply("Welcome back! AFK removed.");
     }
-  }
 
-  // =========================
-  // Mention AFK User
-  // =========================
-  if (msg.mentions.users.size > 0) {
-    msg.mentions.users.forEach(user => {
-      if (data.afk[user.id]) {
-        const time = Math.floor(
-          (Date.now() - data.afk[user.id].time) / 60000
-        );
+    // =========================
+    // AFK SET
+    // =========================
+    if (msg.content.startsWith('!afk')) {
+      const reason = msg.content.slice(4).trim() || "AFK";
 
-        msg.reply(
-          `${user.username} is AFK: ${data.afk[user.id].reason} (${time} min ago)`
-        );
+      data.afk[msg.author.id] = {
+        reason: reason,
+        time: Date.now()
+      };
+
+      saveData();
+
+      return await msg.reply(`You are now AFK: ${reason}`);
+    }
+
+    // =========================
+    // AFK BREAK
+    // =========================
+    if (msg.content === '!afkbreak') {
+      if (data.afk[msg.author.id]) {
+        delete data.afk[msg.author.id];
+        saveData();
+
+        return await msg.reply("AFK manually removed.");
+      } else {
+        return await msg.reply("You are not AFK.");
       }
-    });
-  }
-
-  // =========================
-  // Mimic ON
-  // =========================
-  if (msg.content.startsWith('!mimic')) {
-    const user = msg.mentions.users.first();
-
-    if (!user) {
-      return msg.reply("Mention a user to mimic.");
     }
 
-    data.mimic = user.id;
-    saveData();
+    // =========================
+    // Mention AFK User
+    // =========================
+    if (msg.mentions.users.size > 0) {
+      for (const [userId, user] of msg.mentions.users) {
+        if (data.afk[userId]) {
+          const time = Math.floor(
+            (Date.now() - data.afk[userId].time) / 60000
+          );
 
-    return msg.reply(`Now mimicking ${user.username}`);
-  }
+          await msg.reply(
+            `${user.username} is AFK: ${data.afk[userId].reason} (${time} min ago)`
+          );
+        }
+      }
+    }
 
-  // =========================
-  // Mimic OFF
-  // =========================
-  if (msg.content === '!mimicoff') {
-    data.mimic = null;
-    saveData();
+    // =========================
+    // Mimic ON
+    // =========================
+    if (msg.content.startsWith('!mimic')) {
+      const user = msg.mentions.users.first();
 
-    return msg.reply("Mimic turned off.");
-  }
+      if (!user) {
+        return await msg.reply("Mention a user to mimic.");
+      }
 
-  // =========================
-  // Mimic WORK
-  // =========================
-  if (data.mimic === msg.author.id) {
-    msg.channel.send(msg.content);
+      data.mimic = user.id;
+      saveData();
+
+      return await msg.reply(`Now mimicking ${user.username}`);
+    }
+
+    // =========================
+    // Mimic OFF
+    // =========================
+    if (msg.content === '!mimicoff') {
+      data.mimic = null;
+      saveData();
+
+      return await msg.reply("Mimic turned off.");
+    }
+
+    // =========================
+    // Mimic WORK
+    // =========================
+    if (data.mimic === msg.author.id) {
+      await msg.channel.send(msg.content);
+    }
+  } catch (err) {
+    console.error('Error handling message:', err);
   }
 });
 
 // 🔹 Bot Ready
-client.once('ready', () => {
+client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
-client.login(process.env.TOKEN);
-// 🔹 Login
+
+// 🔹 Login (only once!)
 client.login(process.env.TOKEN);

@@ -1,15 +1,17 @@
 {
-  "name": "discord-afk-mimic-bot",
+  "name": "sweetheart-bot",
   "version": "1.0.0",
-  "description": "Discord bot with AFK and Mimic system",
-  "main": "bot.js",
+  "description": "A romantic Discord bot with AFK & Mimic systems",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "deploy": "node src/deploy-commands.js"
   },
-  "author": "your-name",
+  "author": "Dracula345336",
   "license": "ISC",
   "dependencies": {
     "discord.js": "^14.14.1",
+    "@supabase/supabase-js": "^2.43.0",
     "dotenv": "^16.4.5"
   }
 }
