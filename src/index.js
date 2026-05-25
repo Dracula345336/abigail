@@ -10,76 +10,56 @@ const {
 const fs = require('fs');
 const path = require('path');
 const supabase = require('./supabase');
+const { AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
+const { pick, timeSince } = require('./utils');
 
 /* ═══════════════════════════════════════════
-   💕  Romantic Message Banks
+   ✅  Environment Validation
    ═══════════════════════════════════════════ */
 
-const AFK_SET_MESSAGES = [
-  "Sweetheart, you're now AFK 💕\nGo take care of yourself — I'll be right here waiting for you 🌸",
-  "Off you go, my love! The server will miss your warmth 🌹\nCome back soon! 💖",
-  "You're stepping away for a bit? Don't worry,\nI'll keep your spot warm until you return 🧡",
-  "Take all the time you need, darling 💫\nWe'll be right here when you come back 💕",
-  "Going AFK, pretty soul? 🌙\nMay your time away be as lovely as you are 🌺",
-];
-
-const AFK_RETURN_MESSAGES = [
-  "Welcome back, my love! 💕\nI missed you more than words can say 🥰",
-  "There you are, darling! My heart just skipped a beat 💌\nIt's so good to have you back!",
-  "You're back! The world feels whole again 💖\nHow I've waited for this moment ✨",
-  "My favorite person returned! 🌸\nEverything is brighter with you here 🌟",
-  "Oh, how I've missed you! 💝\nWelcome back to our little world, sweetheart",
-  "The wait is over! 🦋\nYou're back and my heart is so full right now 💕",
-  "Look who's back! 😍\nThe server wasn't the same without you, darling 🌹",
-];
-
-const AFK_MENTION_MESSAGES = [
-  "Shh… they're away right now 🌙\nBut they'll be back, and it'll be worth the wait 💕",
-  "They stepped out for a moment 🌸\nLeave them some love for when they return 💖",
-  "Patience, sweetheart… they're AFK 💫\nBut they'll miss you when they're back 🥰",
-  "That lovely soul is away right now 🌙\nDrop a heart and they'll see it later 💝",
-];
-
-function pick(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function timeSince(isoString) {
-  const ms = Date.now() - new Date(isoString).getTime();
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const h = Math.floor(m / 60);
-  const d = Math.floor(h / 24);
-
-  const parts = [];
-  if (d)  parts.push(`${d} day${d > 1 ? 's' : ''}`);
-  if (h % 24) parts.push(`${h % 24} hr${h % 24 > 1 ? 's' : ''}`);
-  if (m % 60) parts.push(`${m % 60} min${m % 60 > 1 ? 's' : ''}`);
-  if (!parts.length) parts.push('a few seconds');
-  return parts.join(' ');
+const REQUIRED_ENV = ['DISCORD_TOKEN', 'SUPABASE_URL', 'SUPABASE_KEY'];
+const missingEnv = REQUIRED_ENV.filter(key => !process.env[key]);
+if (missingEnv.length) {
+  console.error(`❌ Missing required environment variables: ${missingEnv.join(', ')}`);
+  console.error('   Please check your .env file or environment configuration.');
+  process.exit(1);
 }
 
 /* ═══════════════════════════════════════════
    🤖  Client Setup
+
+   Only NON-privileged intents are used:
+     - Guilds         → basic server info (always free)
+     - GuildMessages  → receive message events (always free)
+
+   No MessageContent or GuildMembers intent needed!
+   - AFK is a slash command (no prefix parsing)
+   - Mimic uses interaction resolved data
+   - Mention detection works without MessageContent
    ═══════════════════════════════════════════ */
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
   ],
   partials: [Partials.Message, Partials.Channel],
 });
 
 client.commands = new Collection();
 
+// Cooldown tracking for AFK mention notifications
+const mentionCooldowns = new Map();
+const AFK_MENTION_COOLDOWN = 30_000; // 30 seconds between AFK notices per user pair
+
 // Load slash commands
 const cmdPath = path.join(__dirname, 'commands');
 for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
   const cmd = require(`./commands/${file}`);
-  if ('data' in cmd && 'execute' in cmd) client.commands.set(cmd.data.name, cmd);
+  if ('data' in cmd && 'execute' in cmd) {
+    client.commands.set(cmd.data.name, cmd);
+    console.log(`📁 Loaded command: /${cmd.data.name}`);
+  }
 }
 
 /* ═══════════════════════════════════════════
@@ -88,6 +68,7 @@ for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
 
 client.once('ready', () => {
   console.log(`💖 ${client.user.tag} is online and spreading love!`);
+  console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
   client.user.setActivity('💕 Watching over you');
 });
 
@@ -112,128 +93,167 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 /* ═══════════════════════════════════════════
-   💬  Message Handler  (AFK System)
+   💬  Message Handler  (AFK Return & Mentions)
+
+   This only needs GuildMessages intent (non-privileged).
+   - Detects when AFK users return (they send any message)
+   - Detects when someone mentions an AFK user
    ═══════════════════════════════════════════ */
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
-  /* ── 1.  !afk command ── */
-  if (message.content.toLowerCase().startsWith('!afk')) {
-    const reason = message.content.slice(4).trim() || 'Just stepped away for a moment 💫';
+  const username = message.member?.displayName || message.author.username;
 
-    const { error } = await supabase
+  /* ── 1. Returning from AFK ── */
+  try {
+    const { data: afkData, error: dbError } = await supabase
       .from('afk_users')
-      .upsert({
-        user_id: message.author.id,
-        guild_id: message.guild.id,
-        afk_time: new Date().toISOString(),
-        reason,
-        avatar_url: message.author.displayAvatarURL({ dynamic: true, size: 256 }),
-        username: message.author.username,
-      }, { onConflict: 'user_id,guild_id' });
-
-    if (error) {
-      console.error('Supabase upsert error:', error);
-      return message.reply('💔 Something went wrong setting your AFK status!');
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor(0xFF69B4)
-      .setAuthor({
-        name: `${message.member.displayName} is now AFK`,
-        iconURL: message.author.displayAvatarURL({ dynamic: true }),
-      })
-      .setTitle('🌙 AFK Mode Activated')
-      .setDescription(pick(AFK_SET_MESSAGES))
-      .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 256 }))
-      .addFields(
-        { name: '📝 Reason', value: `*${reason}*`, inline: true },
-        { name: '⏰ Went away', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
-      )
-      .setFooter({ text: `💕 I'll be waiting for you, ${message.author.username}…` })
-      .setTimestamp();
-
-    return message.reply({ embeds: [embed] });
-  }
-
-  /* ── 2.  Returning from AFK ── */
-  const { data: afkData } = await supabase
-    .from('afk_users')
-    .select('*')
-    .eq('user_id', message.author.id)
-    .eq('guild_id', message.guild.id)
-    .maybeSingle();
-
-  if (afkData) {
-    const away = timeSince(afkData.afk_time);
-
-    const embed = new EmbedBuilder()
-      .setColor(0xFF1493)
-      .setAuthor({
-        name: `${message.member.displayName} is back!`,
-        iconURL: message.author.displayAvatarURL({ dynamic: true }),
-      })
-      .setTitle('💝 Welcome Back!')
-      .setDescription(pick(AFK_RETURN_MESSAGES))
-      .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
-      .addFields(
-        { name: '⏰ You were away for', value: `**${away}**`, inline: true },
-        { name: '📝 Your reason was', value: `*${afkData.reason}*`, inline: true },
-      )
-      .setFooter({ text: '💫 So glad you\'re back!' })
-      .setTimestamp();
-
-    await message.reply({ embeds: [embed] });
-
-    // Remove AFK record
-    await supabase
-      .from('afk_users')
-      .delete()
+      .select('*')
       .eq('user_id', message.author.id)
-      .eq('guild_id', message.guild.id);
+      .eq('guild_id', message.guild.id)
+      .maybeSingle();
+
+    if (dbError) {
+      console.error('Supabase query error (AFK return check):', dbError);
+      return; // Don't block user's message on a DB error
+    }
+
+    if (afkData) {
+      const away = timeSince(afkData.afk_time);
+
+      const embed = new EmbedBuilder()
+        .setColor(0xFF1493)
+        .setAuthor({
+          name: `${username} is back!`,
+          iconURL: message.author.displayAvatarURL({ dynamic: true }),
+        })
+        .setTitle('💝 Welcome Back!')
+        .setDescription(pick(AFK_RETURN_MESSAGES))
+        .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
+        .addFields(
+          { name: '⏰ You were away for', value: `**${away}**`, inline: true },
+          { name: '📝 Your reason was', value: `*${afkData.reason}*`, inline: true },
+        )
+        .setFooter({ text: "💫 So glad you're back!" })
+        .setTimestamp();
+
+      await message.reply({ embeds: [embed] }).catch(console.error);
+
+      // Remove AFK record
+      await supabase
+        .from('afk_users')
+        .delete()
+        .eq('user_id', message.author.id)
+        .eq('guild_id', message.guild.id);
+    }
+  } catch (err) {
+    console.error('Error in AFK return handler:', err);
   }
 
-  /* ── 3.  Mentioned an AFK user ── */
+  /* ── 2. Mentioned an AFK user ── */
   if (message.mentions.users.size > 0) {
-    for (const [userId] of message.mentions.users) {
-      if (userId === message.author.id) continue; // skip self-mention
+    try {
+      for (const [userId] of message.mentions.users) {
+        if (userId === message.author.id) continue; // skip self-mention
 
-      const { data: mentionedAfk } = await supabase
-        .from('afk_users')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('guild_id', message.guild.id)
-        .maybeSingle();
+        // Cooldown check — prevents AFK mention spam
+        const cooldownKey = `${message.author.id}-${userId}`;
+        const now = Date.now();
+        const lastNotified = mentionCooldowns.get(cooldownKey);
+        if (lastNotified && now - lastNotified < AFK_MENTION_COOLDOWN) {
+          continue; // still on cooldown, skip this mention
+        }
 
-      if (mentionedAfk) {
-        const away = timeSince(mentionedAfk.afk_time);
+        const { data: mentionedAfk, error: dbError } = await supabase
+          .from('afk_users')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('guild_id', message.guild.id)
+          .maybeSingle();
 
-        const embed = new EmbedBuilder()
-          .setColor(0xE91E63)
-          .setAuthor({
-            name: `${mentionedAfk.username} is currently AFK`,
-            iconURL: mentionedAfk.avatar_url,
-          })
-          .setTitle('🌙 They\'re Away Right Now')
-          .setDescription(pick(AFK_MENTION_MESSAGES))
-          .setThumbnail(mentionedAfk.avatar_url)
-          .addFields(
-            { name: '📝 Reason', value: `*${mentionedAfk.reason}*`, inline: true },
-            { name: '⏰ Away for', value: `**${away}**`, inline: true },
-          )
-          .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon` })
-          .setTimestamp();
+        if (dbError) {
+          console.error('Supabase query error (AFK mention check):', dbError);
+          break;
+        }
 
-        await message.reply({ embeds: [embed] });
-        break; // one AFK notice per message to avoid spam
+        if (mentionedAfk) {
+          const away = timeSince(mentionedAfk.afk_time);
+
+          const embed = new EmbedBuilder()
+            .setColor(0xE91E63)
+            .setAuthor({
+              name: `${mentionedAfk.username} is currently AFK`,
+              iconURL: mentionedAfk.avatar_url,
+            })
+            .setTitle("🌙 They're Away Right Now")
+            .setDescription(pick(AFK_MENTION_MESSAGES))
+            .setThumbnail(mentionedAfk.avatar_url)
+            .addFields(
+              { name: '📝 Reason', value: `*${mentionedAfk.reason}*`, inline: true },
+              { name: '⏰ Away for', value: `**${away}**`, inline: true },
+            )
+            .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon` })
+            .setTimestamp();
+
+          await message.reply({ embeds: [embed] }).catch(console.error);
+          mentionCooldowns.set(cooldownKey, now);
+          break; // one AFK notice per message to avoid spam
+        }
       }
+    } catch (err) {
+      console.error('Error in AFK mention handler:', err);
     }
   }
+
+  // Periodically clean up stale cooldowns (every ~100 messages per process)
+  if (mentionCooldowns.size > 1000) {
+    const cutoff = Date.now() - AFK_MENTION_COOLDOWN;
+    for (const [key, timestamp] of mentionCooldowns) {
+      if (timestamp < cutoff) mentionCooldowns.delete(key);
+    }
+  }
+});
+
+/* ═══════════════════════════════════════════
+   🚨  Error Handling
+   ═══════════════════════════════════════════ */
+
+client.on('error', (error) => {
+  if (error.message && error.message.includes('disallowed intents')) {
+    console.error('');
+    console.error('════════════════════════════════════════════════════════');
+    console.error('❌ DISALLOWED INTENTS ERROR');
+    console.error('════════════════════════════════════════════════════════');
+    console.error('Your bot is requesting intents that are not enabled.');
+    console.error('');
+    console.error('If you have added privileged intents back, you must');
+    console.error('enable them in the Discord Developer Portal:');
+    console.error('');
+    console.error('  1. Go to https://discord.com/developers/applications');
+    console.error('  2. Select your application');
+    console.error('  3. Navigate to Bot → Privileged Gateway Intents');
+    console.error('  4. Enable the required intents');
+    console.error('  5. Save changes and restart the bot');
+    console.error('════════════════════════════════════════════════════════');
+    console.error('');
+    process.exit(1);
+  }
+  console.error('Client error:', error);
+});
+
+client.on('warn', (warning) => {
+  console.warn('⚠️ Warning:', warning);
 });
 
 /* ═══════════════════════════════════════════
    🔑  Login
    ═══════════════════════════════════════════ */
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN).catch((error) => {
+  console.error('❌ Failed to login:', error.message);
+  if (error.message && error.message.includes('invalid token')) {
+    console.error('   Your DISCORD_TOKEN may be incorrect. Check your .env file.');
+  }
+  process.exit(1);
+});

@@ -37,10 +37,9 @@ module.exports = {
       return interaction.reply({ content: '🚫 You cannot mimic bots, darling!', ephemeral: true });
     }
 
-    let targetMember;
-    try {
-      targetMember = await interaction.guild.members.fetch(targetUser.id);
-    } catch {
+    // Use resolved member data from the interaction (no GuildMembers intent needed)
+    const targetMember = interaction.options.getMember('user');
+    if (!targetMember) {
       return interaction.reply({ content: '🚫 Could not find that user in this server!', ephemeral: true });
     }
 
@@ -58,7 +57,7 @@ module.exports = {
       await webhook.delete('Mimic command cleanup');
 
       await interaction.reply({
-        content: `🎭 Successfully mimicked **${targetMember.displayName}**!`,
+        content: `🎭 Successfully mimicked **${targetMember.displayName || targetUser.username}**!`,
         ephemeral: true,
       });
     } catch (error) {
