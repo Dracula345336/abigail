@@ -6,24 +6,38 @@ const {
   Partials,
   EmbedBuilder,
   Collection,
+  REST,
+  Routes,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const supabase = require('./supabase');
-const { AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
-const { pick, timeSince } = require('./utils');
 
 /* ═══════════════════════════════════════════
    ✅  Environment Validation
    ═══════════════════════════════════════════ */
 
-const REQUIRED_ENV = ['DISCORD_TOKEN', 'SUPABASE_URL', 'SUPABASE_KEY'];
+const REQUIRED_ENV = ['DISCORD_TOKEN'];
 const missingEnv = REQUIRED_ENV.filter(key => !process.env[key]);
 if (missingEnv.length) {
   console.error(`❌ Missing required environment variables: ${missingEnv.join(', ')}`);
   console.error('   Please check your .env file or environment configuration.');
   process.exit(1);
 }
+
+/* ═══════════════════════════════════════════
+   🛡️  Supabase Setup (with fallback)
+   ═══════════════════════════════════════════ */
+
+let supabase = null;
+try {
+  supabase = require('./supabase');
+} catch (err) {
+  console.warn('⚠️  supabase.js not found — AFK features will be disabled.');
+  console.warn('   Copy src/supabase.example.js to src/supabase.js and configure it.');
+}
+
+const { AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
+const { pick, timeSince } = require('./utils');
 
 /* ═══════════════════════════════════════════
    🤖  Client Setup
@@ -33,9 +47,6 @@ if (missingEnv.length) {
      - GuildMessages  → receive message events (always free)
 
    No MessageContent or GuildMembers intent needed!
-   - AFK is a slash command (no prefix parsing)
-   - Mimic uses interaction resolved data
-   - Mention detection works without MessageContent
    ═══════════════════════════════════════════ */
 
 const client = new Client({
@@ -63,13 +74,63 @@ for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
 }
 
 /* ═══════════════════════════════════════════
-   🟢  Ready
+   🟢  Ready + Auto-Register Slash Commands
    ═══════════════════════════════════════════ */
 
-client.once('clientReady', () => {
+client.once('ready', async () => {
   console.log(`💖 ${client.user.tag} is online and spreading love!`);
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
   client.user.setActivity('💕 Watching over you');
+
+  // ── Auto-register slash commands on startup ──
+  if (!process.env.CLIENT_ID) {
+    console.error('');
+    console.error('⚠️  CLIENT_ID is not set — slash commands will NOT be registered!');
+    console.error('   Add CLIENT_ID to your environment variables.');
+    console.error('   Get it from: https://discord.com/developers/applications → General Information → Application ID');
+    console.error('');
+    return;
+  }
+
+  const commands = [];
+  for (const [, cmd] of client.commands) {
+    commands.push(cmd.data.toJSON());
+  }
+
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
+  try {
+    if (process.env.GUILD_ID) {
+      // Guild commands = INSTANT (use for testing/dev)
+      console.log(`🔄 Registering ${commands.length} guild slash command(s) [instant]...`);
+      await rest.put(
+        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+        { body: commands }
+      );
+      console.log('✅ Guild slash commands registered! Commands should appear instantly.');
+    } else {
+      // Global commands = up to 1 hour delay
+      console.log(`🔄 Registering ${commands.length} global slash command(s)...`);
+      console.log('   ⚠️  No GUILD_ID set — using global registration.');
+      console.log('   ⚠️  Global commands can take up to 1 HOUR to appear in Discord!');
+      console.log('   💡 Add GUILD_ID to .env for instant guild registration.');
+      await rest.put(
+        Routes.applicationCommands(process.env.CLIENT_ID),
+        { body: commands }
+      );
+      console.log('✅ Global slash commands registered! They may take up to 1 hour to appear.');
+    }
+  } catch (error) {
+    console.error('❌ Slash command registration failed:', error.message);
+    if (error.status === 401) {
+      console.error('   Your DISCORD_TOKEN may be invalid.');
+    } else if (error.status === 403) {
+      console.error('   Your CLIENT_ID may not match the bot application.');
+    } else if (error.status === 404 && process.env.GUILD_ID) {
+      console.error('   Your GUILD_ID may be incorrect.');
+    }
+    // Don't exit — bot still works for message events, just no slash commands
+  }
 });
 
 /* ═══════════════════════════════════════════
@@ -102,6 +163,7 @@ client.on('interactionCreate', async (interaction) => {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
+  if (!supabase) return; // Skip AFK features if Supabase isn't configured
 
   const username = message.member?.displayName || message.author.username;
 
@@ -116,7 +178,7 @@ client.on('messageCreate', async (message) => {
 
     if (dbError) {
       console.error('Supabase query error (AFK return check):', dbError);
-      return; // Don't block user's message on a DB error
+      return;
     }
 
     if (afkData) {
@@ -155,14 +217,13 @@ client.on('messageCreate', async (message) => {
   if (message.mentions.users.size > 0) {
     try {
       for (const [userId] of message.mentions.users) {
-        if (userId === message.author.id) continue; // skip self-mention
+        if (userId === message.author.id) continue;
 
-        // Cooldown check — prevents AFK mention spam
         const cooldownKey = `${message.author.id}-${userId}`;
         const now = Date.now();
         const lastNotified = mentionCooldowns.get(cooldownKey);
         if (lastNotified && now - lastNotified < AFK_MENTION_COOLDOWN) {
-          continue; // still on cooldown, skip this mention
+          continue;
         }
 
         const { data: mentionedAfk, error: dbError } = await supabase
@@ -198,7 +259,7 @@ client.on('messageCreate', async (message) => {
 
           await message.reply({ embeds: [embed] }).catch(console.error);
           mentionCooldowns.set(cooldownKey, now);
-          break; // one AFK notice per message to avoid spam
+          break;
         }
       }
     } catch (err) {
@@ -206,7 +267,7 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // Periodically clean up stale cooldowns (every ~100 messages per process)
+  // Periodically clean up stale cooldowns
   if (mentionCooldowns.size > 1000) {
     const cutoff = Date.now() - AFK_MENTION_COOLDOWN;
     for (const [key, timestamp] of mentionCooldowns) {
@@ -226,17 +287,10 @@ client.on('error', (error) => {
     console.error('❌ DISALLOWED INTENTS ERROR');
     console.error('════════════════════════════════════════════════════════');
     console.error('Your bot is requesting intents that are not enabled.');
-    console.error('');
-    console.error('If you have added privileged intents back, you must');
-    console.error('enable them in the Discord Developer Portal:');
-    console.error('');
-    console.error('  1. Go to https://discord.com/developers/applications');
-    console.error('  2. Select your application');
-    console.error('  3. Navigate to Bot → Privileged Gateway Intents');
-    console.error('  4. Enable the required intents');
-    console.error('  5. Save changes and restart the bot');
+    console.error('Go to the Discord Developer Portal and enable them:');
+    console.error('  1. https://discord.com/developers/applications');
+    console.error('  2. Select your application → Bot → Privileged Gateway Intents');
     console.error('════════════════════════════════════════════════════════');
-    console.error('');
     process.exit(1);
   }
   console.error('Client error:', error);

@@ -3,12 +3,13 @@
 A romantic Discord bot with AFK tracking and Mimic features, built with Discord.js 14 and Supabase.
 
 > **Zero privileged intents required** — the bot works without enabling any special gateway intents in the Discord Developer Portal.
+> **Slash commands auto-register** — no need to run a separate deploy script, commands register automatically on bot startup.
 
 ## ✨ Features
 
-- **AFK System** — Set yourself as AFK with `/afk`, get welcomed back automatically when you return, and notify others when you're mentioned
-- **AFK Break** — Manually remove your AFK status with `/afkbreak`
-- **AFK List** — See all currently AFK users with `/afk-list`
+- **AFK System** — Set yourself as AFK with `/afk set`, get welcomed back automatically when you return, and notify others when you're mentioned
+- **AFK Break** — Manually remove your AFK status with `/afk break`
+- **AFK List** — See all currently AFK users with `/afk list`
 - **Mimic System** — Impersonate another user via webhooks with `/mimic`
 - **Supabase Integration** — Persistent AFK data storage across bot restarts
 - **Docker Support** — Ready for containerized deployment on Railway, Fly.io, or any Docker host
@@ -17,9 +18,9 @@ A romantic Discord bot with AFK tracking and Mimic features, built with Discord.
 
 | Command | Description |
 |---------|-------------|
-| `/afk [reason]` | Set your AFK status with an optional reason (max 200 chars) |
-| `/afkbreak` | Manually remove your AFK status |
-| `/afk-list` | See all currently AFK users in this server |
+| `/afk set [reason]` | Set your AFK status with an optional reason (max 200 chars) |
+| `/afk break` | Manually remove your AFK status |
+| `/afk list` | See all currently AFK users in this server |
 | `/mimic @user [message]` | Mimic another user in the channel (random message if blank) |
 
 ### Automatic Behavior
@@ -100,37 +101,17 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-supabase-anon-key
 ```
 
-| Variable | Where to find it |
-|----------|-----------------|
-| `DISCORD_TOKEN` | Discord Developer Portal → Your App → Bot → Token |
-| `CLIENT_ID` | Discord Developer Portal → Your App → General Information → Application ID |
-| `GUILD_ID` | Discord → Server Settings → Widget → Server ID (for instant command registration) |
-| `SUPABASE_URL` | Supabase Dashboard → Your Project → Settings → API → Project URL |
-| `SUPABASE_KEY` | Supabase Dashboard → Your Project → Settings → API → anon public key |
+| Variable | Required? | Where to find it |
+|----------|-----------|-----------------|
+| `DISCORD_TOKEN` | ✅ Yes | Discord Developer Portal → Your App → Bot → Token |
+| `CLIENT_ID` | ✅ Yes | Discord Developer Portal → Your App → General Information → Application ID |
+| `GUILD_ID` | ⚡ Recommended | Discord → Server Settings → Widget → Server ID (for instant command registration) |
+| `SUPABASE_URL` | ✅ Yes | Supabase Dashboard → Your Project → Settings → API → Project URL |
+| `SUPABASE_KEY` | ✅ Yes | Supabase Dashboard → Your Project → Settings → API → anon public key |
 
-> 💡 **Tip:** Setting `GUILD_ID` makes slash commands appear **instantly**. Without it, commands register globally which can take **up to 1 hour**.
+> 💡 **Tip:** Setting `GUILD_ID` makes slash commands appear **instantly** on startup. Without it, commands register globally which can take **up to 1 hour** to appear in Discord.
 
-### 5. Deploy Slash Commands
-
-Register the slash commands with Discord (only needed once, or when commands change):
-
-```bash
-npm run deploy
-```
-
-You should see:
-```
-  📁 Loaded: /afk
-  📁 Loaded: /afkbreak
-  📁 Loaded: /afk-list
-  📁 Loaded: /mimic
-
-🔄 Registering 4 guild slash command(s) [instant]...
-✅ Guild slash commands registered successfully!
-   Commands should appear instantly in your server.
-```
-
-### 6. Start the Bot
+### 5. Start the Bot
 
 ```bash
 npm start
@@ -139,12 +120,14 @@ npm start
 You should see:
 ```
 📁 Loaded command: /afk
-📁 Loaded command: /afkbreak
-📁 Loaded command: /afk-list
 📁 Loaded command: /mimic
 💖 YourBot#1234 is online and spreading love!
 📡 Serving 1 server(s)
+🔄 Registering 2 guild slash command(s) [instant]...
+✅ Guild slash commands registered! Commands should appear instantly.
 ```
+
+> Slash commands are **automatically registered** every time the bot starts — no need to run a separate deploy script!
 
 ## 🐳 Docker
 
@@ -159,14 +142,13 @@ docker run -d --env-file .env sweetheart-bot
 
 1. Connect your GitHub repo to Railway
 2. Add the following environment variables in Railway:
-   - `DISCORD_TOKEN`
-   - `CLIENT_ID`
-   - `GUILD_ID`
-   - `SUPABASE_URL`
-   - `SUPABASE_KEY`
+   - `DISCORD_TOKEN` (required)
+   - `CLIENT_ID` (required — for slash command registration)
+   - `GUILD_ID` (recommended — for instant command registration)
+   - `SUPABASE_URL` (required)
+   - `SUPABASE_KEY` (required)
 3. Railway will auto-deploy using the Dockerfile
-
-> **Note:** After the first deploy, run `npm run deploy` once to register slash commands. You can do this by adding a start script or running it locally with the same env vars.
+4. Slash commands are automatically registered on every bot startup
 
 ## 📁 Project Structure
 
@@ -177,16 +159,14 @@ abigal/
 ├── package.json            # NPM manifest
 ├── README.md               # This file
 └── src/
-    ├── index.js            # Main bot entry point
-    ├── deploy-commands.js  # Slash command registration script
+    ├── index.js            # Main bot entry point + auto command registration
+    ├── deploy-commands.js  # Standalone command registration script (optional)
     ├── messages.js         # Romantic message banks
     ├── utils.js            # Utility functions (pick, timeSince)
     ├── supabase.example.js # Supabase client template
     └── commands/
-        ├── afk.js          # /afk slash command
-        ├── afkbreak.js     # /afkbreak slash command
-        ├── afk-list.js     # /afk-list slash command
-        └── mimic.js        # /mimic slash command
+        ├── afk.js          # /afk set | /afk break | /afk list
+        └── mimic.js        # /mimic @user [message]
 ```
 
 ## 📝 License
