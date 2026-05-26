@@ -49,6 +49,28 @@ if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
 const { pick, timeSince } = require('./utils');
 
+// AFK role helper
+const AFK_ROLE_NAME = 'AFK';
+async function getAfkRole(guild) {
+  let role = guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+  if (!role) {
+    try {
+      role = await guild.roles.create({
+        name: AFK_ROLE_NAME,
+        color: 0x808080,
+        hoist: false,
+        mentionable: false,
+        reason: 'Auto-created AFK role for Sweetheart Bot',
+      });
+      console.log(`✅ Created AFK role in ${guild.name}`);
+    } catch (err) {
+      console.error('Could not create AFK role:', err.message);
+      return null;
+    }
+  }
+  return role;
+}
+
 /* ═══════════════════════════════════════════
    🤖  Client Setup
 
@@ -236,6 +258,12 @@ client.on('messageCreate', async (message) => {
       .setFooter({ text: `💕 I'll be waiting for you, ${message.author.username}…` })
       .setTimestamp();
 
+    // Add AFK role
+    const afkRole = await getAfkRole(message.guild);
+    if (afkRole && message.member && !message.member.roles.cache.has(afkRole.id)) {
+      try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { console.error('Could not add AFK role:', e.message); }
+    }
+
     return message.reply({ embeds: [embed] }).catch(console.error);
   }
 
@@ -273,6 +301,12 @@ client.on('messageCreate', async (message) => {
         .setTimestamp();
 
       await message.reply({ embeds: [embed] }).catch(console.error);
+
+      // Remove AFK role
+      const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+      if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id)) {
+        try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
+      }
 
       // Remove AFK record
       await supabase

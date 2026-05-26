@@ -2,6 +2,39 @@ const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js'
 const { pick } = require('../utils');
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES } = require('../messages');
 
+// AFK role name
+const AFK_ROLE_NAME = 'AFK';
+
+/**
+ * Get or create the AFK role in a guild
+ */
+async function getAfkRole(guild) {
+  // Try to find existing AFK role
+  let role = guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+  
+  if (!role) {
+    try {
+      // Create the AFK role
+      role = await guild.roles.create({
+        name: AFK_ROLE_NAME,
+        color: 0x808080, // Gray
+        hoist: false,
+        mentionable: false,
+        reason: 'Auto-created AFK role for Sweetheart Bot',
+      });
+      console.log(`✅ Created AFK role in ${guild.name}`);
+    } catch (err) {
+      console.error('Could not create AFK role:', err.message);
+      return null;
+    }
+  }
+  
+  return role;
+}
+
+module.exports.getAfkRole = getAfkRole;
+module.exports.AFK_ROLE_NAME = AFK_ROLE_NAME;
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('afk')
@@ -54,6 +87,16 @@ module.exports = {
         content: '💔 Something went wrong! **Quick fix:** Go to Supabase Dashboard → SQL Editor → Run:\n```sql\nALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;\n```',
         flags: MessageFlags.Ephemeral,
       });
+    }
+
+    // Add AFK role to the user
+    const afkRole = await getAfkRole(interaction.guild);
+    if (afkRole && member && !member.roles.cache.has(afkRole.id)) {
+      try {
+        await member.roles.add(afkRole, 'User went AFK');
+      } catch (err) {
+        console.error('Could not add AFK role:', err.message);
+      }
     }
 
     const embed = new EmbedBuilder()

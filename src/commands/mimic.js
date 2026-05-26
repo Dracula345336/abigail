@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
 
 const RANDOM_LINES = [
   "Hey everyone! 👋",
@@ -41,11 +41,10 @@ module.exports = {
     const customMsg = interaction.options.getString('message');
 
     /* ── Check mimic access ── */
-    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
     const isOwner = interaction.guild.ownerId === interaction.user.id;
-    let hasAccess = isAdmin || isOwner;
+    let hasAccess = isOwner;
 
-    // Check Supabase access list if available
+    // Check Supabase access list
     if (!hasAccess && supabase) {
       const { data } = await supabase
         .from('mimic_access')
@@ -64,7 +63,7 @@ module.exports = {
 
     if (!hasAccess) {
       return interaction.reply({
-        content: '🚫 You don\'t have mimic access! Ask an admin to grant it with `/mimic-access`.',
+        content: '🚫 You don\'t have mimic access! Only the server owner can grant it with `/mimic-access`.',
         flags: MessageFlags.Ephemeral,
       });
     }

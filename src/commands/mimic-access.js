@@ -1,9 +1,9 @@
-const { SlashCommandBuilder, MessageFlags, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('mimic-access')
-    .setDescription('🔐 Manage who can use /mimic (Admin & Owner only)')
+    .setDescription('🔐 Manage who can use /mimic (Server Owner only)')
     .addSubcommand(sub =>
       sub.setName('add')
         .setDescription('Grant mimic access to a user')
@@ -20,18 +20,18 @@ module.exports = {
             .setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('list')
-        .setDescription('See all users with mimic access'))
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        .setDescription('See all users with mimic access')),
 
   async execute(interaction) {
     const supabase = require('../db');
     const subcommand = interaction.options.getSubcommand();
-    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
+
+    // ONLY server owner can manage mimic access
     const isOwner = interaction.guild.ownerId === interaction.user.id;
 
-    if (!isAdmin && !isOwner) {
+    if (!isOwner) {
       return interaction.reply({
-        content: '🚫 Only the server owner and admins can manage mimic access!',
+        content: '🚫 Only the **server owner** can manage mimic access!',
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -44,7 +44,6 @@ module.exports = {
         return interaction.reply({ content: '🚫 Cannot grant mimic access to bots!', flags: MessageFlags.Ephemeral });
       }
 
-      // Check if already has access
       if (supabase) {
         const { data: existing } = await supabase
           .from('mimic_access')
@@ -60,7 +59,6 @@ module.exports = {
           });
         }
 
-        // Grant access
         const { error } = await supabase
           .from('mimic_access')
           .insert({
@@ -81,7 +79,6 @@ module.exports = {
           }
         }
       } else {
-        // In-memory fallback
         const mimicCmd = interaction.client.commands.get('mimic');
         if (mimicCmd?.mimicAccess) {
           const guildAccess = mimicCmd.mimicAccess.get(interaction.guild.id) || new Set();
@@ -94,12 +91,8 @@ module.exports = {
         .setColor(0xFF69B4)
         .setTitle('🔐 Mimic Access Granted!')
         .setDescription(`**${targetUser.username}** can now use \`/mimic\`!`)
-        .addFields({
-          name: 'Granted by',
-          value: `<@${interaction.user.id}>`,
-          inline: true,
-        })
-        .setFooter({ text: '💡 They can now mimic anyone including bots!' })
+        .addFields({ name: 'Granted by', value: `<@${interaction.user.id}>`, inline: true })
+        .setFooter({ text: '👑 Owner action' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed] });
@@ -109,11 +102,9 @@ module.exports = {
     if (subcommand === 'remove') {
       const targetUser = interaction.options.getUser('user');
 
-      // Admins always have access, can't be removed
-      const targetMember = interaction.options.getMember('user');
-      if (targetMember?.permissions.has(PermissionFlagsBits.Administrator)) {
+      if (targetUser.id === interaction.guild.ownerId) {
         return interaction.reply({
-          content: '🚫 Cannot remove mimic access from admins — they always have access!',
+          content: '🚫 Cannot remove mimic access from the server owner!',
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -126,24 +117,18 @@ module.exports = {
           .eq('user_id', targetUser.id);
       }
 
-      // Also remove from in-memory
       const mimicCmd = interaction.client.commands.get('mimic');
       if (mimicCmd?.mimicAccess) {
         const guildAccess = mimicCmd.mimicAccess.get(interaction.guild.id);
-        if (guildAccess) {
-          guildAccess.delete(targetUser.id);
-        }
+        if (guildAccess) guildAccess.delete(targetUser.id);
       }
 
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('🔐 Mimic Access Revoked!')
         .setDescription(`**${targetUser.username}** can no longer use \`/mimic\`!`)
-        .addFields({
-          name: 'Removed by',
-          value: `<@${interaction.user.id}>`,
-          inline: true,
-        })
+        .addFields({ name: 'Removed by', value: `<@${interaction.user.id}>`, inline: true })
+        .setFooter({ text: '👑 Owner action' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed] });
@@ -161,7 +146,6 @@ module.exports = {
         accessList = data || [];
       }
 
-      // Also include in-memory
       const mimicCmd = interaction.client.commands.get('mimic');
       if (mimicCmd?.mimicAccess) {
         const guildAccess = mimicCmd.mimicAccess.get(interaction.guild.id);
@@ -176,7 +160,7 @@ module.exports = {
 
       if (accessList.length === 0) {
         return interaction.reply({
-          content: '📋 No users have been granted mimic access yet.\nOnly admins and the server owner can use /mimic by default.\nUse `/mimic-access add @user` to grant access!',
+          content: '📋 No users have been granted mimic access yet.\nOnly **you** (owner) can use /mimic by default.\nUse `/mimic-access add @user` to grant access!',
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -188,7 +172,7 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('🔐 Mimic Access List')
-        .setDescription(`**${accessList.length}** user(s) with mimic access:\n\n${userList}\n\n*Admins & Owner always have access*`)
+        .setDescription(`**${accessList.length}** user(s) with mimic access:\n\n${userList}\n\n*👑 Owner always has access*`)
         .setFooter({ text: `💕 ${interaction.guild.name}` })
         .setTimestamp();
 
