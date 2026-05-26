@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 
 const RANDOM_LINES = [
   "Hey everyone! 👋",
@@ -11,10 +11,16 @@ const RANDOM_LINES = [
   "Sending hugs to everyone! 🤗",
 ];
 
+// In-memory mimic log: stores last 50 mimic uses
+// Key: guild_id, Value: array of mimic entries
+const mimicLog = new Map();
+
+module.exports.mimicLog = mimicLog;
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('mimic')
-    .setDescription('🎭 Mimic another user in this channel')
+    .setDescription('🎭 Mimic another user in this channel (Admin only)')
     .addUserOption(option =>
       option.setName('user')
         .setDescription('The user to mimic')
@@ -23,7 +29,8 @@ module.exports = {
       option.setName('message')
         .setDescription('What should they say? (random if blank)')
         .setRequired(false)
-        .setMaxLength(2000)),
+        .setMaxLength(2000))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
     const targetUser = interaction.options.getUser('user');
@@ -37,7 +44,6 @@ module.exports = {
       return interaction.reply({ content: '🚫 You cannot mimic bots, darling!', flags: MessageFlags.Ephemeral });
     }
 
-    // Use resolved member data from the interaction (no GuildMembers intent needed)
     const targetMember = interaction.options.getMember('user');
     if (!targetMember) {
       return interaction.reply({ content: '🚫 Could not find that user in this server!', flags: MessageFlags.Ephemeral });
@@ -55,6 +61,21 @@ module.exports = {
 
       await webhook.send(msgContent);
       await webhook.delete('Mimic command cleanup');
+
+      /* ── Log the mimic use ── */
+      const logEntry = {
+        moderator: interaction.user,
+        target: targetUser,
+        targetName: targetMember.displayName || targetUser.username,
+        message: msgContent,
+        channel: interaction.channel,
+        timestamp: new Date(),
+      };
+
+      const guildLog = mimicLog.get(interaction.guild.id) || [];
+      guildLog.unshift(logEntry);
+      if (guildLog.length > 50) guildLog.pop();
+      mimicLog.set(interaction.guild.id, guildLog);
 
       await interaction.reply({
         content: `🎭 Successfully mimicked **${targetMember.displayName || targetUser.username}**!`,
