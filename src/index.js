@@ -66,7 +66,7 @@ for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
    🟢  Ready
    ═══════════════════════════════════════════ */
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log(`💖 ${client.user.tag} is online and spreading love!`);
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
   client.user.setActivity('💕 Watching over you');
