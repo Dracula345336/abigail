@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
 
 const RANDOM_LINES = [
   "Hey everyone! 👋",
@@ -11,8 +11,8 @@ const RANDOM_LINES = [
   "Sending hugs to everyone! 🤗",
 ];
 
-// In-memory mimic log: stores last 50 mimic uses
-// Key: guild_id, Value: array of mimic entries
+// In-memory mimic log: stores last 100 mimic uses per user
+// Key: `${guild_id}-${user_id}`, Value: array of mimic entries
 const mimicLog = new Map();
 
 module.exports.mimicLog = mimicLog;
@@ -20,7 +20,7 @@ module.exports.mimicLog = mimicLog;
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('mimic')
-    .setDescription('🎭 Mimic another user in this channel (Admin only)')
+    .setDescription('🎭 Mimic another user in this channel')
     .addUserOption(option =>
       option.setName('user')
         .setDescription('The user to mimic')
@@ -29,8 +29,7 @@ module.exports = {
       option.setName('message')
         .setDescription('What should they say? (random if blank)')
         .setRequired(false)
-        .setMaxLength(2000))
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        .setMaxLength(2000)),
 
   async execute(interaction) {
     const targetUser = interaction.options.getUser('user');
@@ -62,9 +61,9 @@ module.exports = {
       await webhook.send(msgContent);
       await webhook.delete('Mimic command cleanup');
 
-      /* ── Log the mimic use ── */
+      /* ── Log the mimic use (per user) ── */
+      const logKey = `${interaction.guild.id}-${interaction.user.id}`;
       const logEntry = {
-        moderator: interaction.user,
         target: targetUser,
         targetName: targetMember.displayName || targetUser.username,
         message: msgContent,
@@ -72,10 +71,10 @@ module.exports = {
         timestamp: new Date(),
       };
 
-      const guildLog = mimicLog.get(interaction.guild.id) || [];
-      guildLog.unshift(logEntry);
-      if (guildLog.length > 50) guildLog.pop();
-      mimicLog.set(interaction.guild.id, guildLog);
+      const userLog = mimicLog.get(logKey) || [];
+      userLog.unshift(logEntry);
+      if (userLog.length > 100) userLog.pop();
+      mimicLog.set(logKey, userLog);
 
       await interaction.reply({
         content: `🎭 Successfully mimicked **${targetMember.displayName || targetUser.username}**!`,
