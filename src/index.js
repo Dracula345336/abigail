@@ -209,7 +209,7 @@ client.on('messageCreate', async (message) => {
 
     if (error) {
       console.error('Supabase upsert error:', error);
-      return message.reply('💔 Something went wrong setting your AFK status! Make sure Supabase RLS policies are set up. Run the SQL in `supabase-setup.sql` file.').catch(console.error);
+      return message.reply('💔 Something went wrong! **Quick fix:** Go to Supabase Dashboard → SQL Editor → Run: `ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;`').catch(console.error);
     }
 
     const embed = new EmbedBuilder()
