@@ -1,38 +1,31 @@
 /* ═══════════════════════════════════════════
    🗄️  Supabase Client
 
-   Uses SERVICE_ROLE key to bypass RLS (Row Level Security).
+   Uses SERVICE_ROLE key ONLY — it bypasses RLS (Row Level Security).
+   The anon key is NOT accepted because it causes RLS permission errors.
    This is safe for a private bot — no public-facing API.
-
-   For Node.js < 22, the `ws` package is required for realtime support.
    ═══════════════════════════════════════════ */
 
 const { createClient } = require('@supabase/supabase-js');
-const ws = require('ws');
 
 if (!process.env.SUPABASE_URL) {
   throw new Error('Missing SUPABASE_URL environment variable.');
 }
 
-// Try service_role key first (bypasses RLS), then fall back to SUPABASE_KEY
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
+// ONLY service_role key is accepted — anon key causes RLS errors
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 
 if (!supabaseKey) {
   throw new Error(
-    'Missing SUPABASE_SERVICE_KEY or SUPABASE_KEY environment variable.\n' +
-    'IMPORTANT: Use the "service_role" key from Supabase Dashboard → Settings → API\n' +
-    'The "anon" key will cause RLS (Row Level Security) errors!'
+    'Missing SUPABASE_SERVICE_KEY environment variable.\n' +
+    'Go to Supabase Dashboard → Settings → API → Copy the "service_role" key (secret).\n' +
+    'Do NOT use the "anon" key — it will cause RLS permission errors!'
   );
 }
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  supabaseKey,
-  {
-    realtime: {
-      transport: ws,
-    },
-  }
+  supabaseKey
 );
 
 module.exports = supabase;
