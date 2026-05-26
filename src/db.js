@@ -5,10 +5,12 @@
      1. SUPABASE_SERVICE_KEY → service_role key (bypasses RLS) ✅ BEST
      2. SUPABASE_KEY         → anon key (needs RLS policies) ⚠️ MAY CAUSE RLS ERRORS
 
+   Uses "ws" package as WebSocket transport for Node.js < 22.
    If neither key is set, exports null and AFK features are disabled.
    ═══════════════════════════════════════════ */
 
 const { createClient } = require('@supabase/supabase-js');
+const ws = require('ws');
 
 if (!process.env.SUPABASE_URL) {
   console.warn('⚠️  SUPABASE_URL not set — AFK features disabled.');
@@ -23,7 +25,12 @@ if (!process.env.SUPABASE_URL) {
     module.exports = null;
   } else {
     const isServiceKey = !!process.env.SUPABASE_SERVICE_KEY;
-    const supabase = createClient(process.env.SUPABASE_URL, supabaseKey);
+
+    const supabase = createClient(process.env.SUPABASE_URL, supabaseKey, {
+      realtime: {
+        transport: ws,
+      },
+    });
 
     if (isServiceKey) {
       console.log('✅ Supabase connected with service_role key (RLS bypassed)!');
