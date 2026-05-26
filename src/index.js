@@ -31,17 +31,19 @@ if (missingEnv.length) {
    ═══════════════════════════════════════════ */
 
 let supabase = null;
-if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY)) {
   try {
     supabase = require('./db');
-    console.log('✅ Supabase connected (service_role key)!');
+    if (supabase) {
+      console.log('✅ Supabase ready — AFK features enabled!');
+    }
   } catch (err) {
     console.error('❌ Failed to initialize Supabase:', err.message);
     console.error('   AFK features will be disabled.');
   }
 } else {
-  console.warn('⚠️  SUPABASE_URL or SUPABASE_SERVICE_KEY not set — AFK features will be disabled.');
-  console.warn('   Set SUPABASE_SERVICE_KEY to your service_role key (not anon key!) from Supabase Dashboard → Settings → API');
+  console.warn('⚠️  SUPABASE_URL or database key not set — AFK features will be disabled.');
+  console.warn('   Set SUPABASE_SERVICE_KEY (best) or SUPABASE_KEY from Supabase Dashboard → Settings → API');
 }
 
 const { AFK_SET_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
