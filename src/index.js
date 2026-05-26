@@ -31,7 +31,7 @@ if (missingEnv.length) {
    ═══════════════════════════════════════════ */
 
 let supabase = null;
-if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
+if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
   try {
     supabase = require('./db');
     console.log('✅ Supabase connected!');
@@ -40,7 +40,7 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
     console.error('   AFK features will be disabled.');
   }
 } else {
-  console.warn('⚠️  SUPABASE_URL or SUPABASE_KEY not set — AFK features will be disabled.');
+  console.warn('⚠️  SUPABASE_URL or SUPABASE_SERVICE_KEY not set — AFK features will be disabled.');
 }
 
 const { AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
