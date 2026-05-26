@@ -10,18 +10,24 @@
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
 
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
+if (!process.env.SUPABASE_URL) {
+  throw new Error('Missing SUPABASE_URL environment variable.');
+}
+
+// Try service_role key first (bypasses RLS), then fall back to SUPABASE_KEY
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
+
+if (!supabaseKey) {
   throw new Error(
-    'Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables.\n' +
-    'Add them to your .env file or Railway environment.\n\n' +
-    'SUPABASE_SERVICE_KEY = your service_role key (found in Supabase Dashboard → Settings → API → service_role key)\n' +
-    'This key bypasses RLS so the bot can read/write the afk_users table.'
+    'Missing SUPABASE_SERVICE_KEY or SUPABASE_KEY environment variable.\n' +
+    'IMPORTANT: Use the "service_role" key from Supabase Dashboard → Settings → API\n' +
+    'The "anon" key will cause RLS (Row Level Security) errors!'
   );
 }
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY,
+  supabaseKey,
   {
     realtime: {
       transport: ws,
