@@ -33,11 +33,9 @@ if (!process.env.SUPABASE_URL) {
     });
 
     if (isServiceKey) {
-      console.log('✅ Supabase connected with service_role key (RLS bypassed)!');
+      console.log('✅ Supabase connected (service_role key — RLS bypassed)!');
     } else {
-      console.log('✅ Supabase connected with anon key.');
-      console.warn('⚠️  Using anon key — if you get RLS errors, switch to service_role key!');
-      console.warn('   Get it from: Supabase Dashboard → Settings → API → service_role key (secret)');
+      console.log('✅ Supabase connected!');
     }
 
     module.exports = supabase;
