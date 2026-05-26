@@ -11,16 +11,6 @@ const RANDOM_LINES = [
   "Sending hugs to everyone! 🤗",
 ];
 
-// In-memory mimic log: stores last 100 mimic uses per user
-const mimicLog = new Map();
-
-// In-memory mimic access list: stores who has mimic permission
-// Key: guild_id, Value: Set of user_ids with access
-const mimicAccess = new Map();
-
-module.exports.mimicLog = mimicLog;
-module.exports.mimicAccess = mimicAccess;
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('mimic')
@@ -55,9 +45,9 @@ module.exports = {
       hasAccess = !!data;
     }
 
-    // Fallback: check in-memory access list
-    if (!hasAccess) {
-      const guildAccess = mimicAccess.get(interaction.guild.id);
+    // Fallback: check in-memory access list on client
+    if (!hasAccess && interaction.client.mimicAccess) {
+      const guildAccess = interaction.client.mimicAccess.get(interaction.guild.id);
       hasAccess = guildAccess && guildAccess.has(interaction.user.id);
     }
 
@@ -90,7 +80,9 @@ module.exports = {
       await webhook.send(msgContent);
       await webhook.delete('Mimic command cleanup');
 
-      /* ── Log the mimic use (per user) ── */
+      /* ── Log the mimic use on client (persistent) ── */
+      if (!interaction.client.mimicLog) interaction.client.mimicLog = new Map();
+
       const logKey = `${interaction.guild.id}-${interaction.user.id}`;
       const logEntry = {
         target: targetUser,
@@ -100,10 +92,10 @@ module.exports = {
         timestamp: new Date(),
       };
 
-      const userLog = mimicLog.get(logKey) || [];
+      const userLog = interaction.client.mimicLog.get(logKey) || [];
       userLog.unshift(logEntry);
       if (userLog.length > 100) userLog.pop();
-      mimicLog.set(logKey, userLog);
+      interaction.client.mimicLog.set(logKey, userLog);
 
       await interaction.reply({
         content: `🎭 Successfully mimicked **${targetName}**!`,

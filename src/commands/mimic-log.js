@@ -11,14 +11,17 @@ module.exports = {
         .setMinValue(1)),
 
   async execute(interaction) {
-    const mimicCmd = interaction.client.commands.get('mimic');
-    const mimicLog = mimicCmd?.mimicLog;
+    const mimicLog = interaction.client.mimicLog;
 
-    if (!mimicLog) {
-      return interaction.reply({
-        content: '📜 No mimic logs found.',
-        flags: MessageFlags.Ephemeral,
-      });
+    if (!mimicLog || mimicLog.size === 0) {
+      const emptyEmbed = new EmbedBuilder()
+        .setColor(0xFF69B4)
+        .setTitle('📜 Your Mimic History')
+        .setDescription('You haven\'t used /mimic yet! 🎭')
+        .setFooter({ text: '💡 Use /mimic @user to get started' })
+        .setTimestamp();
+
+      return interaction.reply({ embeds: [emptyEmbed], flags: MessageFlags.Ephemeral });
     }
 
     // Only get THIS user's log

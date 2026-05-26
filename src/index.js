@@ -49,6 +49,17 @@ if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
 const { pick, timeSince } = require('./utils');
 
+// AFK nickname helpers
+function getAfkNickname(currentNickname, username) {
+  const base = currentNickname || username;
+  const clean = base.replace(/^\[AFK\]\s*/, '');
+  return `[AFK] ${clean}`;
+}
+function getNormalNickname(currentNickname, username) {
+  const base = currentNickname || username;
+  return base.replace(/^\[AFK\]\s*/, '') || username;
+}
+
 // AFK role helper
 const AFK_ROLE_NAME = 'AFK';
 async function getAfkRole(guild) {
@@ -58,7 +69,7 @@ async function getAfkRole(guild) {
       role = await guild.roles.create({
         name: AFK_ROLE_NAME,
         color: 0x808080,
-        hoist: false,
+        hoist: true,  // Show separately in member list!
         mentionable: false,
         reason: 'Auto-created AFK role for Sweetheart Bot',
       });
@@ -113,6 +124,8 @@ for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
    ═══════════════════════════════════════════ */
 
 client.snipes = new Map();
+client.mimicLog = new Map();
+client.mimicAccess = new Map();
 
 
 
@@ -264,6 +277,14 @@ client.on('messageCreate', async (message) => {
       try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { console.error('Could not add AFK role:', e.message); }
     }
 
+    // Set [AFK] nickname
+    if (message.member) {
+      try {
+        const afkNick = getAfkNickname(message.member.nickname, message.author.username);
+        await message.member.setNickname(afkNick, 'User went AFK');
+      } catch (e) { console.error('Could not set AFK nickname:', e.message); }
+    }
+
     return message.reply({ embeds: [embed] }).catch(console.error);
   }
 
@@ -306,6 +327,14 @@ client.on('messageCreate', async (message) => {
       const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
       if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id)) {
         try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
+      }
+
+      // Remove [AFK] nickname
+      if (message.member) {
+        try {
+          const normalNick = getNormalNickname(message.member.nickname, message.author.username);
+          await message.member.setNickname(normalNick, 'User returned from AFK');
+        } catch (e) { console.error('Could not remove AFK nickname:', e.message); }
       }
 
       // Remove AFK record

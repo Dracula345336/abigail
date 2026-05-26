@@ -2,23 +2,20 @@ const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js'
 const { pick } = require('../utils');
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES } = require('../messages');
 
-// AFK role name
 const AFK_ROLE_NAME = 'AFK';
 
 /**
  * Get or create the AFK role in a guild
  */
 async function getAfkRole(guild) {
-  // Try to find existing AFK role
   let role = guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
   
   if (!role) {
     try {
-      // Create the AFK role
       role = await guild.roles.create({
         name: AFK_ROLE_NAME,
-        color: 0x808080, // Gray
-        hoist: false,
+        color: 0x808080,
+        hoist: true, // Show separately in member list!
         mentionable: false,
         reason: 'Auto-created AFK role for Sweetheart Bot',
       });
@@ -32,8 +29,28 @@ async function getAfkRole(guild) {
   return role;
 }
 
+/**
+ * Add [AFK] prefix to nickname
+ */
+function getAfkNickname(currentNickname, username) {
+  const base = currentNickname || username;
+  // Remove existing [AFK] prefix if any
+  const clean = base.replace(/^\[AFK\]\s*/, '');
+  return `[AFK] ${clean}`;
+}
+
+/**
+ * Remove [AFK] prefix from nickname
+ */
+function getNormalNickname(currentNickname, username) {
+  const base = currentNickname || username;
+  return base.replace(/^\[AFK\]\s*/, '');
+}
+
 module.exports.getAfkRole = getAfkRole;
 module.exports.AFK_ROLE_NAME = AFK_ROLE_NAME;
+module.exports.getAfkNickname = getAfkNickname;
+module.exports.getNormalNickname = getNormalNickname;
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -89,13 +106,23 @@ module.exports = {
       });
     }
 
-    // Add AFK role to the user
+    // Add AFK role
     const afkRole = await getAfkRole(interaction.guild);
     if (afkRole && member && !member.roles.cache.has(afkRole.id)) {
       try {
         await member.roles.add(afkRole, 'User went AFK');
       } catch (err) {
         console.error('Could not add AFK role:', err.message);
+      }
+    }
+
+    // Set [AFK] nickname
+    if (member) {
+      try {
+        const afkNick = getAfkNickname(member.nickname, interaction.user.username);
+        await member.setNickname(afkNick, 'User went AFK');
+      } catch (err) {
+        console.error('Could not set AFK nickname:', err.message);
       }
     }
 

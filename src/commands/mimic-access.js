@@ -36,6 +36,9 @@ module.exports = {
       });
     }
 
+    // Ensure client storage exists
+    if (!interaction.client.mimicAccess) interaction.client.mimicAccess = new Map();
+
     /* ── ADD ── */
     if (subcommand === 'add') {
       const targetUser = interaction.options.getUser('user');
@@ -70,22 +73,13 @@ module.exports = {
 
         if (error) {
           console.error('Mimic access add error:', error);
-          // Fallback to in-memory
-          const mimicCmd = interaction.client.commands.get('mimic');
-          if (mimicCmd?.mimicAccess) {
-            const guildAccess = mimicCmd.mimicAccess.get(interaction.guild.id) || new Set();
-            guildAccess.add(targetUser.id);
-            mimicCmd.mimicAccess.set(interaction.guild.id, guildAccess);
-          }
-        }
-      } else {
-        const mimicCmd = interaction.client.commands.get('mimic');
-        if (mimicCmd?.mimicAccess) {
-          const guildAccess = mimicCmd.mimicAccess.get(interaction.guild.id) || new Set();
-          guildAccess.add(targetUser.id);
-          mimicCmd.mimicAccess.set(interaction.guild.id, guildAccess);
         }
       }
+
+      // Also store in-memory on client
+      const guildAccess = interaction.client.mimicAccess.get(interaction.guild.id) || new Set();
+      guildAccess.add(targetUser.id);
+      interaction.client.mimicAccess.set(interaction.guild.id, guildAccess);
 
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
@@ -117,11 +111,9 @@ module.exports = {
           .eq('user_id', targetUser.id);
       }
 
-      const mimicCmd = interaction.client.commands.get('mimic');
-      if (mimicCmd?.mimicAccess) {
-        const guildAccess = mimicCmd.mimicAccess.get(interaction.guild.id);
-        if (guildAccess) guildAccess.delete(targetUser.id);
-      }
+      // Remove from in-memory
+      const guildAccess = interaction.client.mimicAccess.get(interaction.guild.id);
+      if (guildAccess) guildAccess.delete(targetUser.id);
 
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
@@ -146,14 +138,12 @@ module.exports = {
         accessList = data || [];
       }
 
-      const mimicCmd = interaction.client.commands.get('mimic');
-      if (mimicCmd?.mimicAccess) {
-        const guildAccess = mimicCmd.mimicAccess.get(interaction.guild.id);
-        if (guildAccess) {
-          for (const userId of guildAccess) {
-            if (!accessList.find(a => a.user_id === userId)) {
-              accessList.push({ user_id: userId, username: userId });
-            }
+      // Also include in-memory
+      const guildAccess = interaction.client.mimicAccess.get(interaction.guild.id);
+      if (guildAccess) {
+        for (const userId of guildAccess) {
+          if (!accessList.find(a => a.user_id === userId)) {
+            accessList.push({ user_id: userId, username: userId });
           }
         }
       }
