@@ -44,23 +44,26 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
   console.warn('   Set SUPABASE_SERVICE_KEY to your service_role key (not anon key!) from Supabase Dashboard → Settings → API');
 }
 
-const { AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
+const { AFK_SET_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
 const { pick, timeSince } = require('./utils');
 
 /* ═══════════════════════════════════════════
    🤖  Client Setup
 
-   Only NON-privileged intents are used:
-     - Guilds         → basic server info (always free)
-     - GuildMessages  → receive message events (always free)
+   Intents used:
+     - Guilds          → basic server info (non-privileged)
+     - GuildMessages   → receive message events (non-privileged)
+     - MessageContent  → read message text for !afk ?afk .afk commands (PRIVILEGED)
 
-   No MessageContent or GuildMembers intent needed!
+   ⚠️  MessageContent is a PRIVILEGED intent — you MUST enable it in:
+       Discord Developer Portal → Bot → Privileged Gateway Intents → Message Content Intent
    ═══════════════════════════════════════════ */
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
   partials: [Partials.Message, Partials.Channel],
 });
@@ -162,18 +165,65 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 /* ═══════════════════════════════════════════
-   💬  Message Handler  (AFK Return & Mentions)
+   💬  Message Handler  (AFK Prefix Commands, Return & Mentions)
 
-   This only needs GuildMessages intent (non-privileged).
-   - Detects when AFK users return (they send any message)
-   - Detects when someone mentions an AFK user
+   Supports prefix commands: !afk, ?afk, .afk
+   - !afk [reason]   → set AFK with optional reason
+   - ?afk [reason]   → same thing
+   - .afk [reason]   → same thing
+   - Any message from an AFK user → welcome back & remove AFK
+   - Mentioning an AFK user → show AFK status
    ═══════════════════════════════════════════ */
+
+// AFK prefix: !afk, ?afk, .afk
+const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
   if (!supabase) return; // Skip AFK features if Supabase isn't configured
 
   const username = message.member?.displayName || message.author.username;
+  const content = message.content.toLowerCase().trim();
+
+  /* ── 0. Prefix AFK Command: !afk, ?afk, .afk ── */
+  const matchedPrefix = AFK_PREFIXES.find(p => content.startsWith(p));
+  if (matchedPrefix) {
+    const reason = message.content.slice(matchedPrefix.length).trim() || 'Just stepped away for a moment 💫';
+
+    const { error } = await supabase
+      .from('afk_users')
+      .upsert({
+        user_id: message.author.id,
+        guild_id: message.guild.id,
+        afk_time: new Date().toISOString(),
+        reason,
+        avatar_url: message.author.displayAvatarURL({ dynamic: true, size: 256 }),
+        username: message.author.username,
+      }, { onConflict: 'user_id,guild_id' });
+
+    if (error) {
+      console.error('Supabase upsert error:', error);
+      return message.reply('💔 Something went wrong setting your AFK status!').catch(console.error);
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setAuthor({
+        name: `${username} is now AFK`,
+        iconURL: message.author.displayAvatarURL({ dynamic: true }),
+      })
+      .setTitle('🌙 AFK Mode Activated')
+      .setDescription(pick(AFK_SET_MESSAGES))
+      .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 256 }))
+      .addFields(
+        { name: '📝 Reason', value: `*${reason}*`, inline: true },
+        { name: '⏰ Went away', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
+      )
+      .setFooter({ text: `💕 I'll be waiting for you, ${message.author.username}…` })
+      .setTimestamp();
+
+    return message.reply({ embeds: [embed] }).catch(console.error);
+  }
 
   /* ── 1. Returning from AFK ── */
   try {
