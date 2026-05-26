@@ -1,5 +1,4 @@
 const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
-const supabase = require('../db');
 const { pick } = require('../utils');
 const { AFK_SET_MESSAGES } = require('../messages');
 
@@ -14,6 +13,8 @@ module.exports = {
         .setMaxLength(200)),
 
   async execute(interaction) {
+    const supabase = require('../db');
+
     if (!supabase) {
       return interaction.reply({
         content: '💔 AFK system is not available right now (database not configured).',

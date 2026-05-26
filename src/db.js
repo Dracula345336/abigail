@@ -4,28 +4,21 @@
    Uses SERVICE_ROLE key ONLY — it bypasses RLS (Row Level Security).
    The anon key is NOT accepted because it causes RLS permission errors.
    This is safe for a private bot — no public-facing API.
+
+   If SUPABASE_SERVICE_KEY is missing, exports null instead of crashing.
+   The bot will start, but AFK features will be disabled.
    ═══════════════════════════════════════════ */
 
 const { createClient } = require('@supabase/supabase-js');
 
-if (!process.env.SUPABASE_URL) {
-  throw new Error('Missing SUPABASE_URL environment variable.');
-}
-
-// ONLY service_role key is accepted — anon key causes RLS errors
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-
-if (!supabaseKey) {
-  throw new Error(
-    'Missing SUPABASE_SERVICE_KEY environment variable.\n' +
-    'Go to Supabase Dashboard → Settings → API → Copy the "service_role" key (secret).\n' +
-    'Do NOT use the "anon" key — it will cause RLS permission errors!'
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
+  console.warn('⚠️  SUPABASE_URL or SUPABASE_SERVICE_KEY not set — AFK features disabled.');
+  console.warn('   Set SUPABASE_SERVICE_KEY to your service_role key from Supabase Dashboard → Settings → API');
+  module.exports = null;
+} else {
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_KEY
   );
+  module.exports = supabase;
 }
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  supabaseKey
-);
-
-module.exports = supabase;
