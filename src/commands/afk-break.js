@@ -1,16 +1,13 @@
 const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
-const { pick } = require('../utils');
-const { AFK_BREAK_MESSAGES } = require('../messages');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('afk-break')
-    .setDescription('☕ Set yourself as on a break')
-    .addStringOption(option =>
-      option.setName('reason')
-        .setDescription('Why are you taking a break? (optional)')
-        .setRequired(false)
-        .setMaxLength(200)),
+    .setDescription('🔨 Break/remove AFK status from a user')
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('The user whose AFK you want to break')
+        .setRequired(true)),
 
   async execute(interaction) {
     const supabase = require('../db');
@@ -22,26 +19,45 @@ module.exports = {
       });
     }
 
-    const reason = interaction.options.getString('reason') || 'Taking a break ☕';
-    const member = interaction.member;
-    const displayName = member?.displayName || interaction.user.username;
-    const avatarURL = interaction.user.displayAvatarURL({ dynamic: true, size: 256 });
+    const targetUser = interaction.options.getUser('user');
+    const targetMember = interaction.options.getMember('user');
+    const displayName = targetMember?.displayName || targetUser.username;
+    const avatarURL = targetUser.displayAvatarURL({ dynamic: true, size: 256 });
 
-    const { error } = await supabase
+    // Check if the target user is actually AFK
+    const { data: afkData, error: fetchError } = await supabase
       .from('afk_users')
-      .upsert({
-        user_id: interaction.user.id,
-        guild_id: interaction.guild.id,
-        afk_time: new Date().toISOString(),
-        reason,
-        avatar_url: avatarURL,
-        username: interaction.user.username,
-      }, { onConflict: 'user_id,guild_id' });
+      .select('*')
+      .eq('user_id', targetUser.id)
+      .eq('guild_id', interaction.guild.id)
+      .maybeSingle();
 
-    if (error) {
-      console.error('Supabase upsert error (afk-break):', error);
+    if (fetchError) {
+      console.error('Supabase fetch error (afk-break):', fetchError);
       return interaction.reply({
-        content: '💔 Something went wrong! Make sure Supabase RLS policies are set up.\n**Quick fix:** Go to Supabase Dashboard → SQL Editor → Run:\n```sql\nALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;\n```',
+        content: '💔 Something went wrong checking AFK status.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    if (!afkData) {
+      return interaction.reply({
+        content: `✨ **${displayName}** is not AFK right now!`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    // Remove the AFK record
+    const { error: deleteError } = await supabase
+      .from('afk_users')
+      .delete()
+      .eq('user_id', targetUser.id)
+      .eq('guild_id', interaction.guild.id);
+
+    if (deleteError) {
+      console.error('Supabase delete error (afk-break):', deleteError);
+      return interaction.reply({
+        content: '💔 Something went wrong removing AFK status.',
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -49,19 +65,34 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
       .setAuthor({
-        name: `${displayName} is on a break`,
+        name: `${displayName}'s AFK was broken!`,
         iconURL: avatarURL,
       })
-      .setTitle('☕ Break Time!')
-      .setDescription(pick(AFK_BREAK_MESSAGES))
+      .setTitle('🔨 AFK Broken!')
+      .setDescription(`**${interaction.member?.displayName || interaction.user.username}** broke **${displayName}**'s AFK!`)
       .setThumbnail(avatarURL)
       .addFields(
-        { name: '📝 Reason', value: `*${reason}*`, inline: true },
-        { name: '⏰ Went on break', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
+        { name: '📝 Their reason was', value: `*${afkData.reason}*`, inline: true },
+        { name: '⏰ They were away for', value: `**${timeSince(afkData.afk_time)}**`, inline: true },
       )
-      .setFooter({ text: `💕 Take your time, ${interaction.user.username}…` })
+      .setFooter({ text: `💨 Forcefully returned by ${interaction.user.username}` })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });
   },
 };
+
+function timeSince(isoString) {
+  const ms = Date.now() - new Date(isoString).getTime();
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+
+  const parts = [];
+  if (d) parts.push(`${d} day${d > 1 ? 's' : ''}`);
+  if (h % 24) parts.push(`${h % 24} hr${h % 24 > 1 ? 's' : ''}`);
+  if (m % 60) parts.push(`${m % 60} min${m % 60 > 1 ? 's' : ''}`);
+  if (!parts.length) parts.push('a few seconds');
+  return parts.join(' ');
+}
