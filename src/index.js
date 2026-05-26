@@ -46,7 +46,7 @@ if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env
   console.warn('   Set SUPABASE_SERVICE_KEY (best) or SUPABASE_KEY from Supabase Dashboard → Settings → API');
 }
 
-const { AFK_SET_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
+const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
 const { pick, timeSince } = require('./utils');
 
 /* ═══════════════════════════════════════════
@@ -170,9 +170,9 @@ client.on('interactionCreate', async (interaction) => {
    💬  Message Handler  (AFK Prefix Commands, Return & Mentions)
 
    Supports prefix commands: !afk, ?afk, .afk
-   - !afk [reason]   → set AFK with optional reason
-   - ?afk [reason]   → same thing
-   - .afk [reason]   → same thing
+   - !afk [reason]     → set AFK with optional reason
+   - !afk break        → set AFK as "on a break"
+   - ?afk / .afk       → same thing
    - Any message from an AFK user → welcome back & remove AFK
    - Mentioning an AFK user → show AFK status
    ═══════════════════════════════════════════ */
@@ -190,7 +190,11 @@ client.on('messageCreate', async (message) => {
   /* ── 0. Prefix AFK Command: !afk, ?afk, .afk ── */
   const matchedPrefix = AFK_PREFIXES.find(p => content.startsWith(p));
   if (matchedPrefix) {
-    const reason = message.content.slice(matchedPrefix.length).trim() || 'Just stepped away for a moment 💫';
+    const args = message.content.slice(matchedPrefix.length).trim();
+    const isBreak = args.toLowerCase().startsWith('break');
+    const reason = isBreak
+      ? (args.slice(5).trim() || 'Taking a break ☕')
+      : (args || 'Just stepped away for a moment 💫');
 
     const { error } = await supabase
       .from('afk_users')
@@ -205,17 +209,17 @@ client.on('messageCreate', async (message) => {
 
     if (error) {
       console.error('Supabase upsert error:', error);
-      return message.reply('💔 Something went wrong setting your AFK status!').catch(console.error);
+      return message.reply('💔 Something went wrong setting your AFK status! Make sure Supabase RLS policies are set up. Run the SQL in `supabase-setup.sql` file.').catch(console.error);
     }
 
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
       .setAuthor({
-        name: `${username} is now AFK`,
+        name: `${username} is now ${isBreak ? 'on a break' : 'AFK'}`,
         iconURL: message.author.displayAvatarURL({ dynamic: true }),
       })
-      .setTitle('🌙 AFK Mode Activated')
-      .setDescription(pick(AFK_SET_MESSAGES))
+      .setTitle(isBreak ? '☕ Break Time!' : '🌙 AFK Mode Activated')
+      .setDescription(pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES))
       .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 256 }))
       .addFields(
         { name: '📝 Reason', value: `*${reason}*`, inline: true },

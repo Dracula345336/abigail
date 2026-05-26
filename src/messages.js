@@ -10,6 +10,14 @@ const AFK_SET_MESSAGES = [
   "Going AFK, pretty soul? 🌙\nMay your time away be as lovely as you are 🌺",
 ];
 
+const AFK_BREAK_MESSAGES = [
+  "Taking a break? You deserve it, darling ☕\nRest up and come back refreshed! 💕",
+  "Even stars need to rest sometimes 🌟\nEnjoy your break, sweetheart! 🍵",
+  "Break time! 🧘\nTake a deep breath and relax, my love 💆",
+  "Stepping away for a breather? 🌬️\nYou work so hard — enjoy this moment of peace 💕",
+  "A little break goes a long way, darling ☕\nI'll be right here when you're ready to return 🌸",
+];
+
 const AFK_RETURN_MESSAGES = [
   "Welcome back, my love! 💕\nI missed you more than words can say 🥰",
   "There you are, darling! My heart just skipped a beat 💌\nIt's so good to have you back!",
@@ -27,4 +35,4 @@ const AFK_MENTION_MESSAGES = [
   "That lovely soul is away right now 🌙\nDrop a heart and they'll see it later 💝",
 ];
 
-module.exports = { AFK_SET_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES };
+module.exports = { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES };
