@@ -25,15 +25,20 @@ if (missingEnv.length) {
 }
 
 /* ═══════════════════════════════════════════
-   🛡️  Supabase Setup (with fallback)
+   🗄️  Supabase Client
    ═══════════════════════════════════════════ */
 
 let supabase = null;
-try {
-  supabase = require('./supabase');
-} catch (err) {
-  console.warn('⚠️  supabase.js not found — AFK features will be disabled.');
-  console.warn('   Copy src/supabase.example.js to src/supabase.js and configure it.');
+if (process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
+  try {
+    supabase = require('./db');
+    console.log('✅ Supabase connected!');
+  } catch (err) {
+    console.error('❌ Failed to initialize Supabase:', err.message);
+    console.error('   AFK features will be disabled.');
+  }
+} else {
+  console.warn('⚠️  SUPABASE_URL or SUPABASE_KEY not set — AFK features will be disabled.');
 }
 
 const { AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');

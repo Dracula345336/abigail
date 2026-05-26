@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const supabase = require('../supabase');
+const supabase = require('../db');
 const { AFK_SET_MESSAGES, AFK_RETURN_MESSAGES } = require('../messages');
 const { pick, timeSince } = require('../utils');
 
