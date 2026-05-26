@@ -47,6 +47,7 @@ if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env
 }
 
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
+const { WerewolfGame, GAME_STATE, ROLE, activeGames } = require('./werewolf');
 const { pick, timeSince } = require('./utils');
 
 // AFK nickname helpers
@@ -408,6 +409,250 @@ client.on('messageCreate', async (message) => {
     for (const [key, timestamp] of mentionCooldowns) {
       if (timestamp < cutoff) mentionCooldowns.delete(key);
     }
+  }
+});
+
+/* ═══════════════════════════════════════════
+   🐺  Werewolf Game — Prefix Commands
+   
+   w.join      → Join the game
+   w.start     → Start the game (assigns roles, DMs wolves)
+   w.shoot <#> → Vote to shoot a player by number
+   w.players   → See alive players
+   w.end       → End the game (owner only)
+   w.help      → How to play
+   ═══════════════════════════════════════════ */
+
+const WW_PREFIXES = ['w.join', 'w.start', 'w.shoot', 'w.players', 'w.end', 'w.help'];
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot || !message.guild) return;
+  const content = message.content.toLowerCase().trim();
+
+  // Only handle w. commands
+  if (!content.startsWith('w.')) return;
+
+  const args = message.content.trim().split(/\s+/);
+  const cmd = args[0].toLowerCase();
+
+  /* ── w.help ── */
+  if (cmd === 'w.help') {
+    const helpEmbed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setTitle('🐺 Werewolf Game — How to Play')
+      .setDescription('A game of deception! Villagers try to find and shoot the wolves. Wolves try to survive and outnumber villagers.')
+      .addFields(
+        { name: '🎮 Commands', value: '`w.join` — Join the game\n`w.start` — Start the game\n`w.shoot <number>` — Vote to shoot a player\n`w.players` — See alive players\n`w.end` — End game (owner only)', inline: false },
+        { name: '🏘️ Villager', value: 'Find and shoot the wolves during the day!', inline: true },
+        { name: '🐺 Wolf', value: 'Survive! You get DMd your role. Don\'t get caught!', inline: true },
+        { name: '💊 Doctor', value: 'Can save one person each night (6+ players)', inline: true },
+        { name: '🔮 Seer', value: 'Can check one person\'s role each night (6+ players)', inline: true },
+        { name: '🏆 Win Conditions', value: '**Villagers win** when all wolves are eliminated\n**Wolves win** when they equal or outnumber villagers', inline: false },
+      )
+      .setFooter({ text: '💕 Sweetheart Bot — Werewolf' })
+      .setTimestamp();
+    return message.reply({ embeds: [helpEmbed] });
+  }
+
+  /* ── w.join ── */
+  if (cmd === 'w.join') {
+    let game = activeGames.get(message.channel.id);
+    if (!game || game.state === GAME_STATE.ENDED) {
+      game = new WerewolfGame(message.guild.id, message.channel.id);
+      activeGames.set(message.channel.id, game);
+    }
+
+    const result = game.join(message.author);
+    const color = result.success ? 0x00FF00 : 0xFF0000;
+    const embed = new EmbedBuilder()
+      .setColor(color)
+      .setTitle('🐺 Werewolf Game')
+      .setDescription(result.message)
+      .setTimestamp();
+    return message.reply({ embeds: [embed] });
+  }
+
+  /* ── w.start ── */
+  if (cmd === 'w.start') {
+    let game = activeGames.get(message.channel.id);
+    if (!game) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🐺 No Game').setDescription('No game in this channel! Use `w.join` first.').setTimestamp()] });
+    }
+
+    const result = game.start();
+    if (!result.success) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🐺 Cannot Start').setDescription(result.message).setTimestamp()] });
+    }
+
+    // Send start embed
+    const playerList = game.getAlivePlayers().map(p => `**${p.number}.** <@${p.user.id}>`).join('\n');
+    const startEmbed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setTitle('🐺 Werewolf Game Started!')
+      .setDescription(`**${game.players.size} players** — **${result.wolfCount}** wolf/wolves hidden among you!\n\n${playerList}\n\n🌙 **Night falls...** Check your DMs for your role!\nUse \`w.shoot <number>\` to vote during the day!`)
+      .setFooter({ text: '🐺 Find the wolves before they eat you!' })
+      .setTimestamp();
+    await message.reply({ embeds: [startEmbed] });
+
+    // DM each player their role
+    for (const [id, player] of game.players) {
+      try {
+        let roleMsg = '';
+        if (player.role === ROLE.WOLF) {
+          const otherWolves = game.getWolves().filter(w => w.user.id !== id);
+          const wolfNames = otherWolves.map(w => `🐺 **${w.user.username}** (${w.number})`).join('\n');
+          roleMsg = `🐺 **You are a WOLF!**\n\nKill the villagers without getting caught!\n\n${otherWolves.length > 0 ? `Your wolf teammates:\n${wolfNames}` : 'You are the only wolf!'}\n\nUse the day discussion to deceive others. Don't get shot!`;
+        } else if (player.role === ROLE.DOCTOR) {
+          roleMsg = `💊 **You are the DOCTOR!**\n\nYou can save one person each night from the wolves.\nUse your power wisely to protect villagers!`;
+        } else if (player.role === ROLE.SEER) {
+          roleMsg = `🔮 **You are the SEER!**\n\nYou can check one person's role each night.\nUse your knowledge to guide the villagers!`;
+        } else {
+          roleMsg = `🏘️ **You are a VILLAGER!**\n\nFind and eliminate the wolves!\nUse \`w.shoot <number>\` to vote during the day.`;
+        }
+
+        const dmEmbed = new EmbedBuilder()
+          .setColor(player.role === ROLE.WOLF ? 0xFF0000 : 0x00FF00)
+          .setTitle('🌙 Night — Your Role')
+          .setDescription(roleMsg)
+          .setFooter({ text: "🤫 Don't share your role with others!" })
+          .setTimestamp();
+
+        await player.user.send({ embeds: [dmEmbed] });
+      } catch (err) {
+        console.error(`Could not DM ${player.user.username}:`, err.message);
+        await message.channel.send(`⚠️ Could not DM <@${id}> — they may have DMs disabled!`);
+      }
+    }
+
+    // Move to day phase
+    game.state = GAME_STATE.DAY;
+    const dayEmbed = new EmbedBuilder()
+      .setColor(0xFFD700)
+      .setTitle('☀️ Day Phase — Discuss & Vote!')
+      .setDescription('Discuss who you think is a wolf!\nUse `w.shoot <number>` to vote!\n\nExample: `w.shoot 3`')
+      .setFooter({ text: `Round ${game.round} • ${game.getAlivePlayers().length} players alive` })
+      .setTimestamp();
+    return message.channel.send({ embeds: [dayEmbed] });
+  }
+
+  /* ── w.shoot ── */
+  if (cmd === 'w.shoot') {
+    const game = activeGames.get(message.channel.id);
+    if (!game || game.state === GAME_STATE.ENDED) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🐺 No Active Game').setDescription('No active game! Use `w.join` then `w.start`').setTimestamp()] });
+    }
+    if (game.state !== GAME_STATE.DAY) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🌙 Night Phase').setDescription('You can only shoot during the day!').setTimestamp()] });
+    }
+
+    const targetNum = parseInt(args[1]);
+    if (isNaN(targetNum)) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('🔫 Use `w.shoot <number>` — Example: `w.shoot 3`').setTimestamp()] });
+    }
+
+    const target = game.getPlayerByNumber(targetNum);
+    if (!target) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription(`🚫 Player #${targetNum} not found or already dead!`).setTimestamp()] });
+    }
+
+    const result = game.vote(message.author.id, target.user.id);
+    const color = result.success ? 0xFFD700 : 0xFF0000;
+    
+    if (result.success) {
+      // Count votes so far
+      const voteCount = game.votes.size;
+      const aliveCount = game.getAlivePlayers().length;
+      const embed = new EmbedBuilder()
+        .setColor(color)
+        .setTitle('🔫 Vote Cast!')
+        .setDescription(`${result.message}\n\n📊 **${voteCount}/${aliveCount}** votes cast`)
+        .setTimestamp();
+      await message.reply({ embeds: [embed] });
+
+      // If all alive players voted, auto-tally
+      if (voteCount >= aliveCount) {
+        const tally = game.tallyVotes();
+        const tallyEmbed = new EmbedBuilder()
+          .setColor(0xFF69B4)
+          .setTitle('🗳️ Vote Results!')
+          .setDescription(tally.message)
+          .setTimestamp();
+        await message.channel.send({ embeds: [tallyEmbed] });
+
+        // Check win
+        const winCheck = game.checkWin();
+        if (winCheck) {
+          const winEmbed = new EmbedBuilder()
+            .setColor(winCheck.winner === 'wolves' ? 0xFF0000 : 0x00FF00)
+            .setTitle(winCheck.winner === 'wolves' ? '🐺 Wolves Win!' : '🏘️ Villagers Win!')
+            .setDescription(winCheck.message + '\n\n' + game.getAllPlayers().map(p => `**${p.number}.** <@${p.user.id}> — ${p.role} ${p.alive ? '✅' : '💀'}`).join('\n'))
+            .setTimestamp();
+          await message.channel.send({ embeds: [winEmbed] });
+          activeGames.delete(message.channel.id);
+          return;
+        }
+
+        // Next round
+        game.nextRound();
+        const nextEmbed = new EmbedBuilder()
+          .setColor(0xFFD700)
+          .setTitle(`☀️ Round ${game.round} — Discuss & Vote!`)
+          .setDescription('Discuss who you think is a wolf!\nUse `w.shoot <number>` to vote!')
+          .setFooter({ text: `${game.getAlivePlayers().length} players alive` })
+          .setTimestamp();
+        return message.channel.send({ embeds: [nextEmbed] });
+      }
+    } else {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(color).setDescription(result.message).setTimestamp()] });
+    }
+    return;
+  }
+
+  /* ── w.players ── */
+  if (cmd === 'w.players') {
+    const game = activeGames.get(message.channel.id);
+    if (!game) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('No game in this channel! Use `w.join` first.').setTimestamp()] });
+    }
+
+    const aliveList = game.getAlivePlayers().map(p => `**${p.number}.** <@${p.user.id}>`).join('\n');
+    const deadList = game.getAllPlayers().filter(p => !p.alive).map(p => `~~**${p.number}.** ${p.user.username} — ${p.role}~~`).join('\n');
+
+    const embed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setTitle(`🐺 Players — Round ${game.round}`)
+      .addFields(
+        { name: `✅ Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false },
+      );
+    if (deadList) {
+      embed.addFields({ name: `💀 Eliminated`, value: deadList, inline: false });
+    }
+    embed.setFooter({ text: `Game state: ${game.state}` }).setTimestamp();
+    return message.reply({ embeds: [embed] });
+  }
+
+  /* ── w.end ── */
+  if (cmd === 'w.end') {
+    const isOwner = message.guild.ownerId === message.author.id;
+    if (!isOwner) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('🚫 Only the server owner can end the game!').setTimestamp()] });
+    }
+
+    const game = activeGames.get(message.channel.id);
+    if (!game) {
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('No game to end!').setTimestamp()] });
+    }
+
+    const players = game.end();
+    const playerList = players.map(p => `**${p.number}.** <@${p.user.id}> — ${p.role} ${p.alive ? '✅' : '💀'}`).join('\n');
+    activeGames.delete(message.channel.id);
+
+    const embed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setTitle('🐺 Game Ended!')
+      .setDescription(`The game was ended by the owner.\n\n${playerList}`)
+      .setTimestamp();
+    return message.reply({ embeds: [embed] });
   }
 });
 
