@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const supabase = require('../db');
 const { AFK_SET_MESSAGES, AFK_RETURN_MESSAGES } = require('../messages');
 const { pick, timeSince } = require('../utils');
@@ -54,7 +54,7 @@ async function handleAfkSet(interaction) {
 
   if (error) {
     console.error('Supabase upsert error:', error);
-    return interaction.reply({ content: '💔 Something went wrong setting your AFK status!', ephemeral: true });
+    return interaction.reply({ content: '💔 Something went wrong setting your AFK status!', flags: MessageFlags.Ephemeral });
   }
 
   const embed = new EmbedBuilder()
@@ -87,11 +87,11 @@ async function handleAfkBreak(interaction) {
 
   if (dbError) {
     console.error('Supabase query error:', dbError);
-    return interaction.reply({ content: '💔 Something went wrong checking your AFK status!', ephemeral: true });
+    return interaction.reply({ content: '💔 Something went wrong checking your AFK status!', flags: MessageFlags.Ephemeral });
   }
 
   if (!afkData) {
-    return interaction.reply({ content: "💕 You're not currently AFK, sweetheart!", ephemeral: true });
+    return interaction.reply({ content: "💕 You're not currently AFK, sweetheart!", flags: MessageFlags.Ephemeral });
   }
 
   const away = timeSince(afkData.afk_time);
@@ -131,7 +131,7 @@ async function handleAfkList(interaction) {
 
   if (dbError) {
     console.error('Supabase error:', dbError);
-    return interaction.reply({ content: '💔 Failed to fetch AFK list!', ephemeral: true });
+    return interaction.reply({ content: '💔 Failed to fetch AFK list!', flags: MessageFlags.Ephemeral });
   }
 
   if (!afkUsers || afkUsers.length === 0) {

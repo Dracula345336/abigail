@@ -6,6 +6,7 @@ const {
   Partials,
   EmbedBuilder,
   Collection,
+  MessageFlags,
   Events,
   REST,
   Routes,
@@ -152,7 +153,7 @@ client.on('interactionCreate', async (interaction) => {
     await command.execute(interaction);
   } catch (error) {
     console.error('Command error:', error);
-    const reply = { content: '💔 Something went wrong, sweetheart!', ephemeral: true };
+    const reply = { content: '💔 Something went wrong, sweetheart!', flags: MessageFlags.Ephemeral };
     interaction.replied || interaction.deferred
       ? await interaction.followUp(reply)
       : await interaction.reply(reply);

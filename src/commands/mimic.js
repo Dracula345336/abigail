@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 
 const RANDOM_LINES = [
   "Hey everyone! 👋",
@@ -31,16 +31,16 @@ module.exports = {
 
     /* ── Guards ── */
     if (targetUser.id === interaction.user.id) {
-      return interaction.reply({ content: "🪞 Mimicking yourself? That's just talking, sweetheart!", ephemeral: true });
+      return interaction.reply({ content: "🪞 Mimicking yourself? That's just talking, sweetheart!", flags: MessageFlags.Ephemeral });
     }
     if (targetUser.bot) {
-      return interaction.reply({ content: '🚫 You cannot mimic bots, darling!', ephemeral: true });
+      return interaction.reply({ content: '🚫 You cannot mimic bots, darling!', flags: MessageFlags.Ephemeral });
     }
 
     // Use resolved member data from the interaction (no GuildMembers intent needed)
     const targetMember = interaction.options.getMember('user');
     if (!targetMember) {
-      return interaction.reply({ content: '🚫 Could not find that user in this server!', ephemeral: true });
+      return interaction.reply({ content: '🚫 Could not find that user in this server!', flags: MessageFlags.Ephemeral });
     }
 
     const msgContent = customMsg || RANDOM_LINES[Math.floor(Math.random() * RANDOM_LINES.length)];
@@ -58,13 +58,13 @@ module.exports = {
 
       await interaction.reply({
         content: `🎭 Successfully mimicked **${targetMember.displayName || targetUser.username}**!`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       console.error('Mimic error:', error);
       await interaction.reply({
         content: '💔 Couldn\'t mimic that user — make sure I have **Manage Webhooks** permission in this channel!',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },
