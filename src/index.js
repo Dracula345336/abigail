@@ -87,6 +87,14 @@ for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
 }
 
 /* ═══════════════════════════════════════════
+   🔍  Snipe Storage (deleted messages)
+   ═══════════════════════════════════════════ */
+
+client.snipes = new Map();
+
+
+
+/* ═══════════════════════════════════════════
    🟢  Ready + Auto-Register Slash Commands
    ═══════════════════════════════════════════ */
 
@@ -337,6 +345,27 @@ client.on('messageCreate', async (message) => {
     for (const [key, timestamp] of mentionCooldowns) {
       if (timestamp < cutoff) mentionCooldowns.delete(key);
     }
+  }
+});
+
+/* ═══════════════════════════════════════════
+   🔍  Message Delete Handler (Snipe)
+   ═══════════════════════════════════════════ */
+
+client.on('messageDelete', (message) => {
+  if (!message.guild || message.author?.bot) return;
+
+  client.snipes.set(message.channel.id, {
+    content: message.content,
+    author: message.author,
+    timestamp: message.createdAt,
+    attachments: message.attachments ? [...message.attachments.values()] : [],
+  });
+
+  // Auto-clean: only keep last 50 channels
+  if (client.snipes.size > 50) {
+    const firstKey = client.snipes.keys().next().value;
+    client.snipes.delete(firstKey);
   }
 });
 
