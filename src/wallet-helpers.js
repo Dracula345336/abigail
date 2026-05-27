@@ -2,15 +2,14 @@
    💰  Wallet Helpers — Shared for all currency commands
 
    getOrCreateWallet(supabase, userId, guildId, username)
-     → Fetches wallet, creates if missing, always returns valid object or throws
+     → Fetches wallet, creates if missing, always returns valid object or { error }
    ═══════════════════════════════════════════ */
 
 const CURRENCY = '₹';
 
 /**
  * Get or create a wallet for a user in a guild.
- * Returns a valid wallet object with all fields (null timestamps default to null).
- * If creation fails, returns null and logs the error.
+ * Returns { wallet, error } — wallet is valid object or null, error is string or null.
  */
 async function getOrCreateWallet(supabase, userId, guildId, username) {
   // Try fetching first
@@ -23,10 +22,10 @@ async function getOrCreateWallet(supabase, userId, guildId, username) {
 
   if (fetchError) {
     console.error('Wallet fetch error:', fetchError);
-    return null;
+    return { wallet: null, error: `Fetch failed: \`${fetchError.message}\` (code: ${fetchError.code})` };
   }
 
-  if (wallet) return wallet;
+  if (wallet) return { wallet, error: null };
 
   // Wallet doesn't exist — create it
   const { data: newWallet, error: createError } = await supabase
@@ -37,10 +36,10 @@ async function getOrCreateWallet(supabase, userId, guildId, username) {
 
   if (createError) {
     console.error('Wallet create error:', createError);
-    return null;
+    return { wallet: null, error: `Create failed: \`${createError.message}\` (code: ${createError.code})` };
   }
 
-  return newWallet;
+  return { wallet: newWallet, error: null };
 }
 
 /**

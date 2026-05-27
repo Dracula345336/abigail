@@ -47,9 +47,9 @@ module.exports = {
     }
 
     // Fetch robber's wallet
-    const rawWallet = await getOrCreateWallet(supabase, userId, guildId, interaction.user.username);
+    const { wallet: rawWallet, error: walletError } = await getOrCreateWallet(supabase, userId, guildId, interaction.user.username);
     if (!rawWallet) {
-      return interaction.reply({ content: '💔 Could not create your wallet! Make sure the `wallets` table exists and RLS is disabled.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: `💔 Wallet error: ${walletError}`, flags: MessageFlags.Ephemeral });
     }
     const wallet = safeWallet(rawWallet);
 
