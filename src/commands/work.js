@@ -43,7 +43,7 @@ module.exports = {
     if (!wallet) {
       const { data: newWallet } = await supabase
         .from('wallets')
-        .insert({ user_id: userId, guild_id, balance: 0, bank: 0, username: interaction.user.username })
+        .insert({ user_id: userId, guild_id: guildId, balance: 0, bank: 0, username: interaction.user.username })
         .select().single();
       wallet = newWallet;
     }

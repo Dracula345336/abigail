@@ -49,53 +49,40 @@ if (!process.env.SUPABASE_URL) {
  * If possible, auto-fix by disabling RLS using the service role.
  */
 async function checkRLS(supabase) {
-  try {
-    // Test if we can insert
-    const { error: testError } = await supabase
-      .from('afk_users')
-      .insert({
-        user_id: '__rls_test__',
-        guild_id: '__rls_test__',
-        afk_time: new Date().toISOString(),
-        reason: 'RLS check',
-        avatar_url: '',
-        username: 'test',
-      });
+  const tables = ['afk_users', 'wallets', 'mimic_access'];
 
-    if (testError && (testError.code === '42501' || testError.message?.includes('row-level') || testError.message?.includes('policy'))) {
-      console.error('');
-      console.error('════════════════════════════════════════════════════════');
-      console.error('❌ RLS IS BLOCKING AFK COMMANDS!');
-      console.error('════════════════════════════════════════════════════════');
-      console.error('');
-      console.error('👉 FIX OPTION 1 — Set SUPABASE_SERVICE_KEY in Railway:');
-      console.error('   1. Go to https://supabase.com/dashboard');
-      console.error('   2. Select your project → Settings → API');
-      console.error('   3. Copy the "service_role" key (NOT the anon key)');
-      console.error('   4. In Railway → Your bot → Variables:');
-      console.error('      Add: SUPABASE_SERVICE_KEY = <paste the service_role key>');
-      console.error('      Delete: SUPABASE_KEY');
-      console.error('   5. Redeploy');
-      console.error('');
-      console.error('👉 FIX OPTION 2 — Run this SQL in Supabase:');
-      console.error('   1. Go to https://supabase.com/dashboard');
-      console.error('   2. Select your project → SQL Editor → New Query');
-      console.error('   3. Paste: ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;');
-      console.error('   4. Click Run');
-      console.error('════════════════════════════════════════════════════════');
-      console.error('');
-    } else {
-      console.log('✅ RLS check passed — AFK commands should work!');
-      // Clean up test row if it was inserted
-      if (!testError) {
-        await supabase
-          .from('afk_users')
-          .delete()
-          .eq('user_id', '__rls_test__');
+  for (const table of tables) {
+    try {
+      const testData = table === 'afk_users'
+        ? { user_id: '__rls_test__', guild_id: '__rls_test__', afk_time: new Date().toISOString(), reason: 'RLS check', avatar_url: '', username: 'test' }
+        : table === 'wallets'
+        ? { user_id: '__rls_test__', guild_id: '__rls_test__', balance: 0, bank: 0, username: 'test' }
+        : { user_id: '__rls_test__', guild_id: '__rls_test__', allowed_by: '__rls_test__' };
+
+      const { error: testError } = await supabase
+        .from(table)
+        .insert(testData);
+
+      if (testError && (testError.code === '42501' || testError.message?.includes('row-level') || testError.message?.includes('policy'))) {
+        console.error('');
+        console.error(`❌ RLS IS BLOCKING TABLE "${table}"!`);
+        console.error(`   Run this SQL in Supabase SQL Editor:`);
+        console.error(`   ALTER TABLE ${table} DISABLE ROW LEVEL SECURITY;`);
+        console.error('');
+      } else {
+        // Clean up test row if it was inserted
+        if (!testError) {
+          await supabase.from(table).delete().eq('user_id', '__rls_test__').eq('guild_id', '__rls_test__');
+        }
       }
+    } catch (err) {
+      console.warn(`⚠️  Could not verify RLS for table "${table}".`);
     }
-  } catch (err) {
-    // RLS check failed silently — bot will try to work anyway
-    console.warn('⚠️  Could not verify RLS status. AFK commands may not work.');
   }
+
+  console.log('✅ RLS check complete — see above for any issues!');
+  console.error('');
+  console.error('💡 BEST FIX: Set SUPABASE_SERVICE_KEY (service_role key) in Railway instead of SUPABASE_KEY.');
+  console.error('   This bypasses RLS for ALL tables automatically!');
+  console.error('');
 }
