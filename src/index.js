@@ -1,5 +1,16 @@
 require('dotenv').config();
 
+// Keep-alive HTTP server for Render (required to prevent SIGTERM)
+const http = require('http');
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('💖 Sweetheart Bot is running!');
+});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`✅ Keep-alive server running on port ${PORT}`);
+});
+
 const {
   Client,
   GatewayIntentBits,
