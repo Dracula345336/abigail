@@ -481,18 +481,35 @@ client.on('messageCreate', async (message) => {
       .setFooter({ text: `💕 I'll be waiting for you, ${message.author.username}…` })
       .setTimestamp();
 
-    // Add AFK role
+    // Add AFK role + Set [AFK] nickname
+    const afkErrors = [];
     const afkRole = await getAfkRole(message.guild);
-    if (afkRole && message.member && !message.member.roles.cache.has(afkRole.id)) {
-      try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { console.error('Could not add AFK role:', e.message); }
+    if (afkRole && message.member) {
+      if (!message.member.roles.cache.has(afkRole.id)) {
+        try { await message.member.roles.add(afkRole, 'User went AFK'); }
+        catch (e) { afkErrors.push(`Role: ${e.message}`); console.error('Could not add AFK role:', e.message); }
+      }
+      // Move AFK role above bot's role if needed
+      try {
+        const botMember = await message.guild.members.fetchMe();
+        const botRole = botMember.roles.highest;
+        if (afkRole.position > botRole.position) {
+          await afkRole.setPosition(botRole.position - 1);
+        }
+      } catch (e) { console.error('Could not adjust AFK role position:', e.message); }
+    } else if (!afkRole) {
+      afkErrors.push('Could not create AFK role');
     }
 
-    // Set [AFK] nickname
     if (message.member) {
       try {
         const afkNick = getAfkNickname(message.member.nickname, message.author.username);
         await message.member.setNickname(afkNick, 'User went AFK');
-      } catch (e) { console.error('Could not set AFK nickname:', e.message); }
+      } catch (e) { afkErrors.push(`Nickname: ${e.message}`); console.error('Could not set AFK nickname:', e.message); }
+    }
+
+    if (afkErrors.length > 0) {
+      await message.channel.send(`⚠️ <@${message.author.id}> AFK set but some things failed:\n${afkErrors.map(e => `• \`${e}\``).join('\n')}\n💡 **Fix:** Make sure bot has **Manage Nicknames** & **Manage Roles** perms, and bot role is ABOVE the user's role.`).catch(() => {});
     }
 
     return message.reply({ embeds: [embed] }).catch(console.error);
@@ -531,13 +548,12 @@ client.on('messageCreate', async (message) => {
 
       await message.reply({ embeds: [embed] }).catch(console.error);
 
-      // Remove AFK role
+      // Remove AFK role + nickname
       const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
       if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id)) {
         try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
       }
 
-      // Remove [AFK] nickname
       if (message.member) {
         try {
           const normalNick = getNormalNickname(message.member.nickname, message.author.username);
