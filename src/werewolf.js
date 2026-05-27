@@ -1,17 +1,22 @@
 /* ═══════════════════════════════════════════
    🐺 Werewolf Game Engine — Wolfia Style
    
-   Full Night/Day cycle:
-   - 🌙 Night: Wolves kill, Doctor saves, Seer checks
-   - ☀️ Day: Discussion + Voting to eliminate
-   - 🏆 Win: All wolves dead = Villagers win
-           Wolves >= Villagers = Wolves win
+   Full Night/Day cycle with 4 roles:
+   - 🏘️ Villager: Vote during the day
+   - 🐺 Wolf: Kill at night (DM: w.kill <#>)
+   - 💊 Doctor: Save at night (DM: w.save <#>)
+   - 🔮 Seer: Check at night (DM: w.check <#>)
    
-   Commands:
-   - w.join / w.start / w.shoot / w.players / w.end / w.help
-   - w.kill <num>   (DM only — Wolf action)
-   - w.save <num>   (DM only — Doctor action)
-   - w.check <num>  (DM only — Seer action)
+   Game Flow:
+   1. w.join → Players join lobby
+   2. w.start → Roles assigned, Night 1 begins
+   3. Night → Wolves kill, Doctor saves, Seer checks
+   4. Day → Discussion + Vote (w.shoot <#>)
+   5. Repeat until win condition met
+   
+   Win Conditions:
+   - Villagers win = All wolves dead
+   - Wolves win = Wolves >= Villagers
    ═══════════════════════════════════════════ */
 
 const GAME_STATE = {
@@ -28,6 +33,14 @@ const ROLE = {
   SEER: '🔮 Seer',
 };
 
+// Role colors for embeds
+const ROLE_COLORS = {
+  [ROLE.VILLAGER]: 0x2ECC71,
+  [ROLE.WOLF]: 0xE74C3C,
+  [ROLE.DOCTOR]: 0x3498DB,
+  [ROLE.SEER]: 0x9B59B6,
+};
+
 const NIGHT_TIMER = 60;   // seconds for night actions
 const DAY_TIMER = 90;     // seconds for day discussion + voting
 
@@ -41,6 +54,7 @@ class WerewolfGame {
     this.votes = new Map();
     this.round = 0;
     this.playerNumber = 0;
+    this.started = false;
 
     // Night action storage
     this.wolfTarget = null;      // userId wolves chose to kill
@@ -50,7 +64,7 @@ class WerewolfGame {
     this.nightTimer = null;
     this.dayTimer = null;
     this.channel = null;         // Discord channel object (set on start)
-    this.lastProtected = null;   // userId doctor saved last night (can't save same twice in a row)
+    this.lastProtected = null;   // userId doctor saved last night
   }
 
   join(user) {
@@ -70,31 +84,33 @@ class WerewolfGame {
       alive: true,
       number: this.playerNumber,
     });
-    return { success: true, message: `✅ **${user.username}** joined the game! (${this.players.size} players)` };
+    return { success: true, message: `✅ **${user.username}** joined! (${this.players.size} players)` };
   }
 
   start() {
     const playerCount = this.players.size;
     if (playerCount < 4) {
-      return { success: false, message: '🚫 Need at least 4 players to start!' };
+      return { success: false, message: '🚫 Need at least **4 players** to start!' };
     }
 
+    // Wolf count based on player count (Wolfia-style)
     let wolfCount;
     if (playerCount <= 5) wolfCount = 1;
     else if (playerCount <= 8) wolfCount = 2;
     else if (playerCount <= 12) wolfCount = 3;
     else wolfCount = 4;
 
+    // Shuffle player IDs for role assignment
     const playerIds = [...this.players.keys()];
     const shuffled = playerIds.sort(() => Math.random() - 0.5);
 
-    // Assign wolves
+    // Assign wolves first
     for (let i = 0; i < wolfCount; i++) {
       this.players.get(shuffled[i]).role = ROLE.WOLF;
     }
 
-    // Assign Doctor (6+ players)
-    if (playerCount >= 6) {
+    // Assign Doctor (5+ players get doctor)
+    if (playerCount >= 5) {
       for (let i = wolfCount; i < shuffled.length; i++) {
         if (!this.players.get(shuffled[i]).role) {
           this.players.get(shuffled[i]).role = ROLE.DOCTOR;
@@ -103,8 +119,8 @@ class WerewolfGame {
       }
     }
 
-    // Assign Seer (6+ players)
-    if (playerCount >= 6) {
+    // Assign Seer (5+ players get seer)
+    if (playerCount >= 5) {
       for (let i = wolfCount; i < shuffled.length; i++) {
         if (!this.players.get(shuffled[i]).role) {
           this.players.get(shuffled[i]).role = ROLE.SEER;
@@ -120,6 +136,7 @@ class WerewolfGame {
 
     this.state = GAME_STATE.NIGHT;
     this.round = 1;
+    this.started = true;
     return { success: true, wolfCount };
   }
 
@@ -132,6 +149,9 @@ class WerewolfGame {
     }
     if (this.state !== GAME_STATE.NIGHT) {
       return { success: false, message: '🌙 You can only kill during the night!' };
+    }
+    if (this.nightActions.has(wolfId)) {
+      return { success: false, message: '🚫 You already chose your target!' };
     }
     const target = this.getPlayerByNumber(targetNum);
     if (!target) return { success: false, message: '🚫 Invalid player number!' };
@@ -157,7 +177,6 @@ class WerewolfGame {
     const target = this.getPlayerByNumber(targetNum);
     if (!target) return { success: false, message: '🚫 Invalid player number!' };
     if (!target.alive) return { success: false, message: '💀 That player is already dead!' };
-    // Can't save same person two nights in a row
     if (this.lastProtected === target.user.id) {
       return { success: false, message: '🚫 You cannot save the same person two nights in a row!' };
     }
@@ -194,13 +213,33 @@ class WerewolfGame {
     };
   }
 
+  /* ── Check if all night actions are done ── */
+
+  allNightActionsDone() {
+    const aliveWolves = this.getAliveWolves();
+    const aliveDoctor = [...this.players.values()].find(p => p.role === ROLE.DOCTOR && p.alive);
+    const aliveSeer = [...this.players.values()].find(p => p.role === ROLE.SEER && p.alive);
+
+    // All alive wolves must have acted
+    const wolvesDone = aliveWolves.every(w => this.nightActions.has(w.user.id));
+    if (!wolvesDone) return false;
+
+    // Doctor must have acted (if alive)
+    if (aliveDoctor && !this.nightActions.has(aliveDoctor.user.id)) return false;
+
+    // Seer must have acted (if alive)
+    if (aliveSeer && !this.nightActions.has(aliveSeer.user.id)) return false;
+
+    return true;
+  }
+
   /* ── Resolve Night ── */
 
   resolveNight() {
     const results = {
-      killed: null,        // player who died (or null if saved/no kill)
-      saved: false,        // whether doctor saved someone
-      wolfTarget: null,    // who wolves targeted
+      killed: null,
+      saved: false,
+      wolfTarget: null,
     };
 
     if (this.wolfTarget) {
@@ -216,16 +255,11 @@ class WerewolfGame {
         // Target dies
         target.alive = false;
         results.killed = target;
+        this.lastProtected = this.doctorTarget || null;
       }
     } else {
-      // Wolves didn't choose (timer expired)
+      // Wolves didn't choose (timer expired without wolf action)
       results.killed = null;
-    }
-
-    if (!results.saved && this.doctorTarget) {
-      this.lastProtected = this.doctorTarget;
-    } else if (!this.doctorTarget) {
-      this.lastProtected = null;
     }
 
     // Reset night actions
@@ -246,7 +280,7 @@ class WerewolfGame {
     if (!target) return { success: false, message: '🚫 Target not found!' };
     if (!voter.alive) return { success: false, message: '💀 Dead players cannot vote!' };
     if (!target.alive) return { success: false, message: '💀 That player is already dead!' };
-    if (voterId === targetId) return { success: false, message: '🚫 You cannot vote yourself!' };
+    if (voterId === targetId) return { success: false, message: '🚫 You cannot vote for yourself!' };
     this.votes.set(voterId, targetId);
     return { success: true, message: `🗳️ **${voter.user.username}** voted for **${target.user.username}**!` };
   }
@@ -267,7 +301,7 @@ class WerewolfGame {
     if (targets.length > 1) return { eliminated: null, message: '⚖️ It\'s a tie! No one was eliminated.' };
     const eliminated = this.players.get(targets[0]);
     eliminated.alive = false;
-    return { eliminated, message: `💀 **${eliminated.user.username}** was eliminated! They were a **${eliminated.role}**!` };
+    return { eliminated, message: `💀 **${eliminated.user.username}** was eliminated! They were **${eliminated.role}**!` };
   }
 
   /* ── Win Check ── */
@@ -279,8 +313,14 @@ class WerewolfGame {
       if (player.role === ROLE.WOLF) aliveWolves++;
       else aliveVillagers++;
     }
-    if (aliveWolves === 0) { this.state = GAME_STATE.ENDED; return { winner: 'villagers', message: '🏘️ **Villagers win!** All wolves have been eliminated!' }; }
-    if (aliveWolves >= aliveVillagers) { this.state = GAME_STATE.ENDED; return { winner: 'wolves', message: '🐺 **Wolves win!** They have overtaken the village!' }; }
+    if (aliveWolves === 0) {
+      this.state = GAME_STATE.ENDED;
+      return { winner: 'villagers', message: '🏘️ **Villagers win!** All wolves have been eliminated!' };
+    }
+    if (aliveWolves >= aliveVillagers) {
+      this.state = GAME_STATE.ENDED;
+      return { winner: 'wolves', message: '🐺 **Wolves win!** They have overtaken the village!' };
+    }
     return null;
   }
 
@@ -315,7 +355,6 @@ class WerewolfGame {
 
   startNight() {
     this.state = GAME_STATE.NIGHT;
-    this.round++;
     this.wolfTarget = null;
     this.doctorTarget = null;
     this.seerTarget = null;
@@ -330,10 +369,12 @@ class WerewolfGame {
 
   end() {
     this.state = GAME_STATE.ENDED;
-    if (this.nightTimer) clearTimeout(this.nightTimer);
-    if (this.dayTimer) clearTimeout(this.dayTimer);
+    if (this.nightTimer) { clearTimeout(this.nightTimer); this.nightTimer = null; }
+    if (this.dayTimer) { clearTimeout(this.dayTimer); this.dayTimer = null; }
     return this.getAllPlayers();
   }
+
+  /* ── Display Helpers ── */
 
   getPlayerListString() {
     return this.getAlivePlayers().map(p => `**${p.number}.** <@${p.user.id}>`).join('\n');
@@ -346,10 +387,16 @@ class WerewolfGame {
   }
 
   getFullPlayerListString() {
-    return this.getAllPlayers().map(p => `**${p.number}.** <@${p.user.id}> — ${p.role} ${p.alive ? '✅' : '💀'}`).join('\n');
+    return this.getAllPlayers().map(p =>
+      `**${p.number}.** <@${p.user.id}> — ${p.role} ${p.alive ? '✅' : '💀'}`
+    ).join('\n');
+  }
+
+  getAlivePlayersCompact() {
+    return this.getAlivePlayers().map(p => `**${p.number}.** ${p.user.username}`).join('\n');
   }
 }
 
 const activeGames = new Map();
 
-module.exports = { WerewolfGame, GAME_STATE, ROLE, activeGames, NIGHT_TIMER, DAY_TIMER };
+module.exports = { WerewolfGame, GAME_STATE, ROLE, ROLE_COLORS, activeGames, NIGHT_TIMER, DAY_TIMER };
