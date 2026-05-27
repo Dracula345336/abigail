@@ -1,5 +1,12 @@
 const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
 
+const AFK_ROLE_NAME = 'AFK';
+
+function getNormalNickname(currentNickname, username) {
+  const base = currentNickname || username;
+  return base.replace(/^\[AFK\]\s*/, '') || username;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('afk-break')
@@ -60,6 +67,20 @@ module.exports = {
         content: '💔 Something went wrong removing AFK status.',
         flags: MessageFlags.Ephemeral,
       });
+    }
+
+    // Remove AFK role from target member
+    if (targetMember) {
+      const afkRole = interaction.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+      if (afkRole && targetMember.roles.cache.has(afkRole.id)) {
+        try { await targetMember.roles.remove(afkRole, 'AFK broken by another user'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
+      }
+
+      // Restore normal nickname (remove [AFK] prefix)
+      try {
+        const normalNick = getNormalNickname(targetMember.nickname, targetUser.username);
+        await targetMember.setNickname(normalNick, 'AFK broken — nickname restored');
+      } catch (e) { console.error('Could not restore nickname:', e.message); }
     }
 
     const embed = new EmbedBuilder()

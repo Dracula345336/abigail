@@ -267,14 +267,16 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.join') {
       let game = activeGames.get(message.channel.id);
       if (!game || game.state === GAME_STATE.ENDED) {
-        game = new WerewolfGame(message.guild.id, message.channel.id);
+        // First person to join becomes the HOST
+        game = new WerewolfGame(message.guild.id, message.channel.id, message.author.id);
         activeGames.set(message.channel.id, game);
       }
       const result = game.join(message.author);
+      const isHost = game.hostId === message.author.id;
       const embed = new EmbedBuilder()
         .setColor(result.success ? 0x00FF00 : 0xFF0000)
         .setTitle('🐺 Werewolf Game')
-        .setDescription(result.message)
+        .setDescription(result.message + (result.success && isHost ? '\n👑 **You are the HOST!** Only you can `w.start` and `w.end` the game.' : ''))
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }
@@ -283,6 +285,10 @@ client.on('messageCreate', async (message) => {
       let game = activeGames.get(message.channel.id);
       if (!game) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🐺 No Game').setDescription('No game in this channel! Use `w.join` first.').setTimestamp()] });
+      }
+      // Only host can start
+      if (message.author.id !== game.hostId) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🚫 Not the Host').setDescription('Only the **host** can start the game!\nAsk the person who created the game to run `w.start`.').setTimestamp()] });
       }
       const result = game.start();
       if (!result.success) {
@@ -412,13 +418,13 @@ client.on('messageCreate', async (message) => {
     }
 
     if (cmd === 'w.end') {
-      const isOwner = message.guild.ownerId === message.author.id;
-      if (!isOwner) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('🚫 Only the server owner can end the game!').setTimestamp()] });
-      }
       const game = activeGames.get(message.channel.id);
       if (!game) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('No game to end!').setTimestamp()] });
+      }
+      // Only host can end
+      if (message.author.id !== game.hostId) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🚫 Not the Host').setDescription('Only the **host** can end the game!\nAsk the person who created the game to run `w.end`.').setTimestamp()] });
       }
       const players = game.end();
       const playerList = players.map(p => `**${p.number}.** <@${p.user.id}> — ${p.role} ${p.alive ? '✅' : '💀'}`).join('\n');
@@ -426,7 +432,7 @@ client.on('messageCreate', async (message) => {
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('🐺 Game Ended!')
-        .setDescription(`The game was ended by the owner.\n\n${playerList}`)
+        .setDescription(`The game was ended by the host.\n\n${playerList}`)
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }

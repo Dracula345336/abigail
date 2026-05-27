@@ -23,9 +23,10 @@ const ROLE = {
 };
 
 class WerewolfGame {
-  constructor(guildId, channelId) {
+  constructor(guildId, channelId, hostId) {
     this.guildId = guildId;
     this.channelId = channelId;
+    this.hostId = hostId; // Only host can start/end
     this.state = GAME_STATE.WAITING;
     this.players = new Map();
     this.votes = new Map();
