@@ -58,8 +58,134 @@ if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env
 }
 
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
-const { WerewolfGame, GAME_STATE, ROLE, activeGames } = require('./werewolf');
+const { WerewolfGame, GAME_STATE, ROLE, activeGames, NIGHT_TIMER, DAY_TIMER } = require('./werewolf');
 const { pick, timeSince } = require('./utils');
+
+/* ═══════════════════════════════════════════
+   🐺 Werewolf Night/Day Phase Functions
+   ═══════════════════════════════════════════ */
+
+async function startNightPhase(game) {
+  game.startNight();
+  const channel = game.channel;
+  if (!channel) return;
+
+  const aliveList = game.getAlivePlayers().map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+
+  const nightEmbed = new EmbedBuilder()
+    .setColor(0x1a1a2e)
+    .setTitle(`🌙 Night ${game.round} — The Village Sleeps...`)
+    .setDescription('The wolves are choosing their victim...\nThe doctor may save someone...\nThe seer may investigate...\n\n⏰ You have **60 seconds** for night actions!')
+    .addFields({ name: '👥 Alive Players', value: aliveList || 'None', inline: false })
+    .setFooter({ text: '🤫 Night actions are secret — check your DMs!' })
+    .setTimestamp();
+  await channel.send({ embeds: [nightEmbed] });
+
+  // DM wolves, doctor, seer their night action reminders
+  for (const [, player] of game.players) {
+    if (!player.alive) continue;
+    try {
+      if (player.role === ROLE.WOLF) {
+        await player.user.send(`🌙 **Night ${game.round}** — Choose your victim!\nUse \`w.kill <number>\`\n\nAlive players:\n${aliveList}`);
+      } else if (player.role === ROLE.DOCTOR) {
+        await player.user.send(`🌙 **Night ${game.round}** — Choose someone to save!\nUse \`w.save <number>\`\n\n⚠️ ${game.lastProtected ? `You saved <@${game.lastProtected}> last night — pick someone else!` : 'This is your first night — save anyone!'}\n\nAlive players:\n${aliveList}`);
+      } else if (player.role === ROLE.SEER) {
+        const checkList = game.getAlivePlayers().filter(p => p.user.id !== player.user.id).map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+        await player.user.send(`🌙 **Night ${game.round}** — Choose someone to investigate!\nUse \`w.check <number>\`\n\nOther alive players:\n${checkList}`);
+      }
+    } catch (err) {
+      console.error(`Could not DM ${player.user.username}:`, err.message);
+    }
+  }
+
+  // Night timer
+  game.nightTimer = setTimeout(async () => {
+    if (game.state !== GAME_STATE.NIGHT) return;
+    // Night ended — resolve
+    const results = game.resolveNight();
+    await startDayPhase(game, results);
+  }, NIGHT_TIMER * 1000);
+}
+
+async function startDayPhase(game, nightResults) {
+  game.startDay();
+  const channel = game.channel;
+  if (!channel) return;
+
+  // Announce night results
+  let dayDesc = '';
+  if (nightResults.killed) {
+    dayDesc = `💀 **${nightResults.killed.user.username}** was killed by the wolves last night!\nThey were a **${nightResults.killed.role}**.`;
+  } else if (nightResults.saved) {
+    dayDesc = '🏥 **Someone was attacked but the doctor saved them!**\nNo one died last night.';
+  } else if (nightResults.wolfTarget) {
+    dayDesc = '🌙 The wolves chose a target... but no one died.';
+  } else {
+    dayDesc = '🌙 A quiet night... no one was attacked.';
+  }
+
+  // Check win after night kill
+  const winCheck = game.checkWin();
+  if (winCheck) {
+    const winEmbed = new EmbedBuilder()
+      .setColor(winCheck.winner === 'wolves' ? 0xFF0000 : 0x00FF00)
+      .setTitle(winCheck.winner === 'wolves' ? '🐺 Wolves Win!' : '🏘️ Villagers Win!')
+      .setDescription(`${dayDesc}\n\n${winCheck.message}\n\n${game.getFullPlayerListString()}`)
+      .setTimestamp();
+    await channel.send({ embeds: [winEmbed] });
+    activeGames.delete(channel.id);
+    return;
+  }
+
+  const aliveList = game.getPlayerListString();
+  const dayEmbed = new EmbedBuilder()
+    .setColor(0xFFD700)
+    .setTitle(`☀️ Day ${game.round} — Discuss & Vote!`)
+    .setDescription(`${dayDesc}\n\nDiscuss who you think is a wolf!\nVote with \`w.shoot <number>\``)
+    .addFields({ name: `👥 Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false })
+    .setFooter({ text: `⏰ You have ${DAY_TIMER} seconds to vote!` })
+    .setTimestamp();
+  await channel.send({ embeds: [dayEmbed] });
+
+  // Day timer
+  game.dayTimer = setTimeout(async () => {
+    if (game.state !== GAME_STATE.DAY) return;
+    await resolveDayVote(game);
+  }, DAY_TIMER * 1000);
+}
+
+async function resolveDayVote(game) {
+  if (game.state !== GAME_STATE.DAY) return;
+  const channel = game.channel;
+  if (!channel) return;
+
+  // Clear day timer
+  if (game.dayTimer) { clearTimeout(game.dayTimer); game.dayTimer = null; }
+
+  const tally = game.tallyVotes();
+  const tallyEmbed = new EmbedBuilder()
+    .setColor(0xFF69B4)
+    .setTitle('🗳️ Vote Results!')
+    .setDescription(tally.message)
+    .setTimestamp();
+  await channel.send({ embeds: [tallyEmbed] });
+
+  // Check win
+  const winCheck = game.checkWin();
+  if (winCheck) {
+    const winEmbed = new EmbedBuilder()
+      .setColor(winCheck.winner === 'wolves' ? 0xFF0000 : 0x00FF00)
+      .setTitle(winCheck.winner === 'wolves' ? '🐺 Wolves Win!' : '🏘️ Villagers Win!')
+      .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
+      .setTimestamp();
+    await channel.send({ embeds: [winEmbed] });
+    activeGames.delete(channel.id);
+    return;
+  }
+
+  // Next night
+  await startNightPhase(game);
+}
 
 // AFK nickname helpers
 function getAfkNickname(currentNickname, username) {
@@ -237,8 +363,46 @@ client.on('interactionCreate', async (interaction) => {
 const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
 
 client.on('messageCreate', async (message) => {
-  if (message.author.bot || !message.guild) return;
-  // Note: AFK features require Supabase, werewolf game works without it
+  if (message.author.bot) return;
+
+  /* ── DM Handler for Werewolf Night Actions ── */
+  if (!message.guild) {
+    const msgContent = message.content.toLowerCase().trim();
+    if (msgContent.startsWith('w.')) {
+      const args = message.content.trim().split(/\s+/);
+      const cmd = args[0].toLowerCase();
+
+      if (cmd === 'w.kill' || cmd === 'w.save' || cmd === 'w.check') {
+        let foundGame = null;
+        for (const [, g] of activeGames) {
+          if (g.players.has(message.author.id) && g.state !== GAME_STATE.ENDED) {
+            foundGame = g;
+            break;
+          }
+        }
+        if (!foundGame) {
+          return message.reply('🚫 You are not in any active game!');
+        }
+        if (foundGame.state !== GAME_STATE.NIGHT) {
+          return message.reply('🌙 Night actions can only be used during the night!');
+        }
+        const targetNum = parseInt(args[1]);
+        if (isNaN(targetNum)) {
+          return message.reply(`❌ Use \`${cmd} <number>\` — Example: \`${cmd} 3\``);
+        }
+
+        let result;
+        if (cmd === 'w.kill') result = foundGame.wolfKill(message.author.id, targetNum);
+        else if (cmd === 'w.save') result = foundGame.doctorSave(message.author.id, targetNum);
+        else if (cmd === 'w.check') result = foundGame.seerCheck(message.author.id, targetNum);
+
+        if (result) return message.reply(result.message);
+      } else if (cmd === 'w.help') {
+        return message.reply('🐺 **Werewolf DM Commands:**\n`w.kill <#>` — Wolf: choose victim\n`w.save <#>` — Doctor: protect someone\n`w.check <#>` — Seer: investigate someone');
+      }
+    }
+    return;
+  }
 
   const msgContent = message.content.toLowerCase().trim();
 
@@ -247,18 +411,21 @@ client.on('messageCreate', async (message) => {
     const args = message.content.trim().split(/\s+/);
     const cmd = args[0].toLowerCase();
 
+    // ── Channel commands ──
+
     if (cmd === 'w.help') {
       const helpEmbed = new EmbedBuilder()
         .setColor(0xFF69B4)
-        .setTitle('🐺 Werewolf Game — How to Play')
-        .setDescription('A game of deception! Villagers try to find and shoot the wolves. Wolves try to survive and outnumber villagers.')
+        .setTitle('🐺 Werewolf — Wolfia Style')
+        .setDescription('A game of deception with full Night/Day cycle!\n🌙 **Night:** Wolves kill, Doctor saves, Seer investigates\n☀️ **Day:** Discuss and vote to eliminate suspects')
         .addFields(
-          { name: '🎮 Commands', value: '`w.join` — Join the game\n`w.start` — Start the game\n`w.shoot <number>` — Vote to shoot a player\n`w.players` — See alive players\n`w.end` — End game (owner only)', inline: false },
-          { name: '🏘️ Villager', value: 'Find and shoot the wolves during the day!', inline: true },
-          { name: '🐺 Wolf', value: 'Survive! You get DMd your role. Don\'t get caught!', inline: true },
-          { name: '💊 Doctor', value: 'Can save one person each night (6+ players)', inline: true },
-          { name: '🔮 Seer', value: 'Can check one person\'s role each night (6+ players)', inline: true },
-          { name: '🏆 Win Conditions', value: '**Villagers win** when all wolves are eliminated\n**Wolves win** when they equal or outnumber villagers', inline: false },
+          { name: '🎮 Commands', value: '`w.join` — Join the game\n`w.start` — Start the game (HOST only)\n`w.shoot <#>` — Vote to eliminate (day)\n`w.kill <#>` — Wolf: choose victim (DM)\n`w.save <#>` — Doctor: protect someone (DM)\n`w.check <#>` — Seer: investigate (DM)\n`w.players` — See alive players\n`w.end` — End game (HOST only)', inline: false },
+          { name: '🏘️ Villager', value: 'Vote during the day to eliminate wolves!', inline: true },
+          { name: '🐺 Wolf', value: 'Kill at night! DM: `w.kill <#>`', inline: true },
+          { name: '💊 Doctor', value: 'Save at night! DM: `w.save <#>`', inline: true },
+          { name: '🔮 Seer', value: 'Check at night! DM: `w.check <#>`', inline: true },
+          { name: '🏆 Win Conditions', value: '**Villagers win** = all wolves dead\n**Wolves win** = wolves >= villagers', inline: false },
+          { name: '⏰ Timers', value: `Night: ${NIGHT_TIMER}s • Day: ${DAY_TIMER}s`, inline: false },
         )
         .setFooter({ text: '💕 Sweetheart Bot — Werewolf' })
         .setTimestamp();
@@ -268,8 +435,8 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.join') {
       let game = activeGames.get(message.channel.id);
       if (!game || game.state === GAME_STATE.ENDED) {
-        // First person to join becomes the HOST
         game = new WerewolfGame(message.guild.id, message.channel.id, message.author.id);
+        game.channel = message.channel;
         activeGames.set(message.channel.id, game);
       }
       const result = game.join(message.author);
@@ -287,7 +454,6 @@ client.on('messageCreate', async (message) => {
       if (!game) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🐺 No Game').setDescription('No game in this channel! Use `w.join` first.').setTimestamp()] });
       }
-      // Only host can start
       if (message.author.id !== game.hostId) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🚫 Not the Host').setDescription('Only the **host** can start the game!\nAsk the person who created the game to run `w.start`.').setTimestamp()] });
       }
@@ -295,64 +461,62 @@ client.on('messageCreate', async (message) => {
       if (!result.success) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🐺 Cannot Start').setDescription(result.message).setTimestamp()] });
       }
-      const playerList = game.getAlivePlayers().map(p => `**${p.number}.** <@${p.user.id}>`).join('\n');
+
+      const playerList = game.getPlayerListString();
       const startEmbed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('🐺 Werewolf Game Started!')
-        .setDescription(`**${game.players.size} players** — **${result.wolfCount}** wolf/wolves hidden among you!\n\n${playerList}\n\n🌙 **Night falls...** Check your DMs for your role!\nUse \`w.shoot <number>\` to vote during the day!`)
-        .setFooter({ text: '🐺 Find the wolves before they eat you!' })
+        .setDescription(`**${game.players.size} players** — **${result.wolfCount}** wolf/wolves among you!\n\n${playerList}\n\n🌙 **Night 1 begins...** Check your DMs!`)
+        .setFooter({ text: '🐺 Deception begins!' })
         .setTimestamp();
       await message.reply({ embeds: [startEmbed] });
 
-      // DM each player their role
+      // DM each player their role + instructions
       for (const [id, player] of game.players) {
         try {
           let roleMsg = '';
           if (player.role === ROLE.WOLF) {
             const otherWolves = game.getWolves().filter(w => w.user.id !== id);
-            const wolfNames = otherWolves.map(w => `🐺 **${w.user.username}** (${w.number})`).join('\n');
-            roleMsg = `🐺 **You are a WOLF!**\n\nKill the villagers without getting caught!\n\n${otherWolves.length > 0 ? `Your wolf teammates:\n${wolfNames}` : 'You are the only wolf!'}\n\nUse the day discussion to deceive others. Don't get shot!`;
+            const wolfNames = otherWolves.map(w => `🐺 **${w.user.username}** (#${w.number})`).join('\n');
+            roleMsg = `🐺 **You are a WOLF!**\n\nChoose a villager to kill each night.\nDM me: \`w.kill <number>\`\n\n${otherWolves.length > 0 ? `Your wolf teammates:\n${wolfNames}` : 'You are the only wolf!'}\n\n🤫 Don't reveal yourself!`;
           } else if (player.role === ROLE.DOCTOR) {
-            roleMsg = `💊 **You are the DOCTOR!**\n\nYou can save one person each night from the wolves.\nUse your power wisely to protect villagers!`;
+            const aliveList = game.getAlivePlayers().map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+            roleMsg = `💊 **You are the DOCTOR!**\n\nChoose one person to save each night.\nDM me: \`w.save <number>\`\n\n⚠️ You cannot save the same person two nights in a row!\n\nAlive players:\n${aliveList}`;
           } else if (player.role === ROLE.SEER) {
-            roleMsg = `🔮 **You are the SEER!**\n\nYou can check one person's role each night.\nUse your knowledge to guide the villagers!`;
+            const aliveList = game.getAlivePlayers().filter(p => p.user.id !== id).map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+            roleMsg = `🔮 **You are the SEER!**\n\nChoose one person to investigate each night.\nDM me: \`w.check <number>\`\n\nYou will learn if they are a wolf or not!\n\nOther alive players:\n${aliveList}`;
           } else {
-            roleMsg = `🏘️ **You are a VILLAGER!**\n\nFind and eliminate the wolves!\nUse \`w.shoot <number>\` to vote during the day.`;
+            roleMsg = `🏘️ **You are a VILLAGER!**\n\nSurvive and find the wolves!\nDuring the day, use \`w.shoot <number>\` to vote.\n\n🌙 Sleep peacefully at night...`;
           }
           const dmEmbed = new EmbedBuilder()
-            .setColor(player.role === ROLE.WOLF ? 0xFF0000 : 0x00FF00)
-            .setTitle('🌙 Night — Your Role')
+            .setColor(player.role === ROLE.WOLF ? 0xFF0000 : player.role === ROLE.DOCTOR ? 0x00BFFF : player.role === ROLE.SEER ? 0x9B59B6 : 0x00FF00)
+            .setTitle('🌙 Your Secret Role')
             .setDescription(roleMsg)
             .setFooter({ text: "🤫 Don't share your role with others!" })
             .setTimestamp();
           await player.user.send({ embeds: [dmEmbed] });
         } catch (err) {
           console.error(`Could not DM ${player.user.username}:`, err.message);
-          await message.channel.send(`⚠️ Could not DM <@${id}> — they may have DMs disabled!`);
+          await message.channel.send(`⚠️ Could not DM <@${id}> — tell them to enable DMs!`);
         }
       }
 
-      game.state = GAME_STATE.DAY;
-      const dayEmbed = new EmbedBuilder()
-        .setColor(0xFFD700)
-        .setTitle('☀️ Day Phase — Discuss & Vote!')
-        .setDescription('Discuss who you think is a wolf!\nUse `w.shoot <number>` to vote!\n\nExample: `w.shoot 3`')
-        .setFooter({ text: `Round ${game.round} • ${game.getAlivePlayers().length} players alive` })
-        .setTimestamp();
-      return message.channel.send({ embeds: [dayEmbed] });
+      // Start Night 1
+      await startNightPhase(game);
+      return;
     }
 
     if (cmd === 'w.shoot') {
       const game = activeGames.get(message.channel.id);
       if (!game || game.state === GAME_STATE.ENDED) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🐺 No Active Game').setDescription('No active game! Use `w.join` then `w.start`').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('No active game! Use `w.join` then `w.start`').setTimestamp()] });
       }
       if (game.state !== GAME_STATE.DAY) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🌙 Night Phase').setDescription('You can only shoot during the day!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('🌙 You can only vote during the day!').setTimestamp()] });
       }
       const targetNum = parseInt(args[1]);
       if (isNaN(targetNum)) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('🔫 Use `w.shoot <number>` — Example: `w.shoot 3`').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('🗳️ Use `w.shoot <number>` — Example: `w.shoot 3`').setTimestamp()] });
       }
       const target = game.getPlayerByNumber(targetNum);
       if (!target) {
@@ -364,37 +528,14 @@ client.on('messageCreate', async (message) => {
         const aliveCount = game.getAlivePlayers().length;
         const embed = new EmbedBuilder()
           .setColor(0xFFD700)
-          .setTitle('🔫 Vote Cast!')
+          .setTitle('🗳️ Vote Cast!')
           .setDescription(`${result.message}\n\n📊 **${voteCount}/${aliveCount}** votes cast`)
           .setTimestamp();
         await message.reply({ embeds: [embed] });
+
+        // If all alive players voted, tally immediately
         if (voteCount >= aliveCount) {
-          const tally = game.tallyVotes();
-          const tallyEmbed = new EmbedBuilder()
-            .setColor(0xFF69B4)
-            .setTitle('🗳️ Vote Results!')
-            .setDescription(tally.message)
-            .setTimestamp();
-          await message.channel.send({ embeds: [tallyEmbed] });
-          const winCheck = game.checkWin();
-          if (winCheck) {
-            const winEmbed = new EmbedBuilder()
-              .setColor(winCheck.winner === 'wolves' ? 0xFF0000 : 0x00FF00)
-              .setTitle(winCheck.winner === 'wolves' ? '🐺 Wolves Win!' : '🏘️ Villagers Win!')
-              .setDescription(winCheck.message + '\n\n' + game.getAllPlayers().map(p => `**${p.number}.** <@${p.user.id}> — ${p.role} ${p.alive ? '✅' : '💀'}`).join('\n'))
-              .setTimestamp();
-            await message.channel.send({ embeds: [winEmbed] });
-            activeGames.delete(message.channel.id);
-            return;
-          }
-          game.nextRound();
-          const nextEmbed = new EmbedBuilder()
-            .setColor(0xFFD700)
-            .setTitle(`☀️ Round ${game.round} — Discuss & Vote!`)
-            .setDescription('Discuss who you think is a wolf!\nUse `w.shoot <number>` to vote!')
-            .setFooter({ text: `${game.getAlivePlayers().length} players alive` })
-            .setTimestamp();
-          return message.channel.send({ embeds: [nextEmbed] });
+          await resolveDayVote(game);
         }
       } else {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription(result.message).setTimestamp()] });
@@ -407,11 +548,11 @@ client.on('messageCreate', async (message) => {
       if (!game) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('No game in this channel! Use `w.join` first.').setTimestamp()] });
       }
-      const aliveList = game.getAlivePlayers().map(p => `**${p.number}.** <@${p.user.id}>`).join('\n');
-      const deadList = game.getAllPlayers().filter(p => !p.alive).map(p => `~~**${p.number}.** ${p.user.username} — ${p.role}~~`).join('\n');
+      const aliveList = game.getPlayerListString();
+      const deadList = game.getDeadListString();
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
-        .setTitle(`🐺 Players — Round ${game.round}`)
+        .setTitle(`🐺 Players — Round ${game.round} (${game.state === GAME_STATE.NIGHT ? '🌙 Night' : '☀️ Day'})`)
         .addFields({ name: `✅ Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false });
       if (deadList) embed.addFields({ name: '💀 Eliminated', value: deadList, inline: false });
       embed.setFooter({ text: `Game state: ${game.state}` }).setTimestamp();
@@ -423,12 +564,11 @@ client.on('messageCreate', async (message) => {
       if (!game) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription('No game to end!').setTimestamp()] });
       }
-      // Only host can end
       if (message.author.id !== game.hostId) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🚫 Not the Host').setDescription('Only the **host** can end the game!\nAsk the person who created the game to run `w.end`.').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xFF0000).setTitle('🚫 Not the Host').setDescription('Only the **host** can end the game!').setTimestamp()] });
       }
       const players = game.end();
-      const playerList = players.map(p => `**${p.number}.** <@${p.user.id}> — ${p.role} ${p.alive ? '✅' : '💀'}`).join('\n');
+      const playerList = game.getFullPlayerListString();
       activeGames.delete(message.channel.id);
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
@@ -439,8 +579,49 @@ client.on('messageCreate', async (message) => {
     }
   }
 
+  /* ── Handle DM commands for w.kill, w.save, w.check (sent from guild channel too) ── */
+  // Also handle if someone types w.kill/w.save/w.check in channel (redirect to DM)
+  if (message.guild && (msgContent.startsWith('w.kill ') || msgContent.startsWith('w.save ') || msgContent.startsWith('w.check '))) {
+    const args = message.content.trim().split(/\s+/);
+    const cmd = args[0].toLowerCase();
+    const game = activeGames.get(message.channel.id);
+
+    if (!game || game.state === GAME_STATE.ENDED) {
+      return message.reply('🚫 No active game in this channel!');
+    }
+    if (game.state !== GAME_STATE.NIGHT) {
+      return message.reply('🌙 Night actions can only be used during the night!');
+    }
+
+    const targetNum = parseInt(args[1]);
+    if (isNaN(targetNum)) {
+      return message.reply(`❌ Use \`${cmd} <number>\` — Example: \`${cmd} 3\``);
+    }
+
+    let result;
+    if (cmd === 'w.kill') result = game.wolfKill(message.author.id, targetNum);
+    else if (cmd === 'w.save') result = game.doctorSave(message.author.id, targetNum);
+    else if (cmd === 'w.check') result = game.seerCheck(message.author.id, targetNum);
+
+    if (result) {
+      // Reply via DM to keep it secret
+      try {
+        await message.author.send(result.message);
+        // Delete the user's message in channel to keep it secret
+        try { await message.delete(); } catch (e) { /* can't delete, no permission */ }
+      } catch (e) {
+        // Can't DM, reply ephemeral-like
+        await message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x00FF00 : 0xFF0000).setDescription(result.message).setTimestamp()] }).then(m => {
+          setTimeout(() => m.delete().catch(() => {}), 5000);
+        });
+      }
+    }
+    return;
+  }
+
   const username = message.member?.displayName || message.author.username;
   const content = message.content.toLowerCase().trim();
+
 
   /* ── 0. Prefix AFK Command: !afk, ?afk, .afk ── */
   const matchedPrefix = AFK_PREFIXES.find(p => content.startsWith(p));
