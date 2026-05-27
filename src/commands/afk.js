@@ -107,30 +107,21 @@ module.exports = {
     }
 
     // Add AFK role + Set [AFK] nickname
-    const afkErrors = [];
+    const isOwner = interaction.guild.ownerId === interaction.user.id;
     const afkRole = await getAfkRole(interaction.guild);
     if (afkRole && member) {
       if (!member.roles.cache.has(afkRole.id)) {
         try { await member.roles.add(afkRole, 'User went AFK'); }
-        catch (err) { afkErrors.push(`Role: ${err.message}`); console.error('Could not add AFK role:', err.message); }
+        catch (err) { console.error('Could not add AFK role:', err.message); }
       }
-      // Move AFK role below bot's highest role so bot can assign it
-      try {
-        const botMember = await interaction.guild.members.fetchMe();
-        const botRole = botMember.roles.highest;
-        if (afkRole.position > botRole.position) {
-          await afkRole.setPosition(botRole.position - 1);
-        }
-      } catch (e) { console.error('Could not adjust AFK role position:', e.message); }
-    } else if (!afkRole) {
-      afkErrors.push('Could not create AFK role');
     }
 
-    if (member) {
+    // Skip nickname for server owner — Discord doesn't allow it
+    if (member && !isOwner) {
       try {
         const afkNick = getAfkNickname(member.nickname, interaction.user.username);
         await member.setNickname(afkNick, 'User went AFK');
-      } catch (err) { afkErrors.push(`Nickname: ${err.message}`); console.error('Could not set AFK nickname:', err.message); }
+      } catch (err) { console.error('Could not set AFK nickname:', err.message); }
     }
 
     const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${reason}\`\n┗ ⏱️ **Went away:** <t:${Math.floor(Date.now() / 1000)}:R>`;
@@ -148,13 +139,5 @@ module.exports = {
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });
-
-    // Show permission errors if role/nickname failed
-    if (afkErrors.length > 0) {
-      await interaction.followUp({
-        content: `⚠️ AFK set but some things failed:\n${afkErrors.map(e => `• \`${e}\``).join('\n')}\n💡 **Fix:** Make sure bot has **Manage Nicknames** & **Manage Roles** perms, and bot role is ABOVE the user's role.`,
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => {});
-    }
   },
 };

@@ -482,34 +482,20 @@ client.on('messageCreate', async (message) => {
       .setTimestamp();
 
     // Add AFK role + Set [AFK] nickname
-    const afkErrors = [];
+    const isOwner = message.guild.ownerId === message.author.id;
     const afkRole = await getAfkRole(message.guild);
     if (afkRole && message.member) {
       if (!message.member.roles.cache.has(afkRole.id)) {
-        try { await message.member.roles.add(afkRole, 'User went AFK'); }
-        catch (e) { afkErrors.push(`Role: ${e.message}`); console.error('Could not add AFK role:', e.message); }
+        try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { console.error('Could not add AFK role:', e.message); }
       }
-      // Move AFK role above bot's role if needed
-      try {
-        const botMember = await message.guild.members.fetchMe();
-        const botRole = botMember.roles.highest;
-        if (afkRole.position > botRole.position) {
-          await afkRole.setPosition(botRole.position - 1);
-        }
-      } catch (e) { console.error('Could not adjust AFK role position:', e.message); }
-    } else if (!afkRole) {
-      afkErrors.push('Could not create AFK role');
     }
 
-    if (message.member) {
+    // Skip nickname for server owner — Discord doesn't allow it
+    if (message.member && !isOwner) {
       try {
         const afkNick = getAfkNickname(message.member.nickname, message.author.username);
         await message.member.setNickname(afkNick, 'User went AFK');
-      } catch (e) { afkErrors.push(`Nickname: ${e.message}`); console.error('Could not set AFK nickname:', e.message); }
-    }
-
-    if (afkErrors.length > 0) {
-      await message.channel.send(`⚠️ <@${message.author.id}> AFK set but some things failed:\n${afkErrors.map(e => `• \`${e}\``).join('\n')}\n💡 **Fix:** Make sure bot has **Manage Nicknames** & **Manage Roles** perms, and bot role is ABOVE the user's role.`).catch(() => {});
+      } catch (e) { console.error('Could not set AFK nickname:', e.message); }
     }
 
     return message.reply({ embeds: [embed] }).catch(console.error);
@@ -549,12 +535,14 @@ client.on('messageCreate', async (message) => {
       await message.reply({ embeds: [embed] }).catch(console.error);
 
       // Remove AFK role + nickname
+      const isReturnOwner = message.guild.ownerId === message.author.id;
       const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
       if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id)) {
         try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
       }
 
-      if (message.member) {
+      // Skip nickname for server owner — Discord doesn't allow it
+      if (message.member && !isReturnOwner) {
         try {
           const normalNick = getNormalNickname(message.member.nickname, message.author.username);
           await message.member.setNickname(normalNick, 'User returned from AFK');

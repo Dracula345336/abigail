@@ -76,11 +76,14 @@ module.exports = {
         try { await targetMember.roles.remove(afkRole, 'AFK broken by another user'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
       }
 
-      // Restore normal nickname (remove [AFK] prefix)
-      try {
-        const normalNick = getNormalNickname(targetMember.nickname, targetUser.username);
-        await targetMember.setNickname(normalNick, 'AFK broken — nickname restored');
-      } catch (e) { console.error('Could not restore nickname:', e.message); }
+      // Skip nickname for server owner — Discord doesn't allow it
+      const isTargetOwner = interaction.guild.ownerId === targetUser.id;
+      if (!isTargetOwner) {
+        try {
+          const normalNick = getNormalNickname(targetMember.nickname, targetUser.username);
+          await targetMember.setNickname(normalNick, 'AFK broken — nickname restored');
+        } catch (e) { console.error('Could not restore nickname:', e.message); }
+      }
     }
 
     const breakDesc = `**${interaction.member?.displayName || interaction.user.username}** broke **${displayName}**'s AFK!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${timeSince(afkData.afk_time)}\``;
