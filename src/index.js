@@ -109,6 +109,7 @@ async function getAfkRole(guild) {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,   // Required for AFK role + nickname changes
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
