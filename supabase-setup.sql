@@ -25,6 +25,22 @@ CREATE TABLE IF NOT EXISTS mimic_access (
   PRIMARY KEY (guild_id, user_id)
 );
 
--- 3. Disable RLS on both tables
+-- 3. Create wallets table (Dank Memer style INR currency)
+CREATE TABLE IF NOT EXISTS wallets (
+  user_id     TEXT NOT NULL,
+  guild_id    TEXT NOT NULL,
+  balance     BIGINT NOT NULL DEFAULT 0,
+  bank        BIGINT NOT NULL DEFAULT 0,
+  last_daily  TIMESTAMPTZ,
+  last_work   TIMESTAMPTZ,
+  last_beg    TIMESTAMPTZ,
+  last_rob    TIMESTAMPTZ,
+  username    TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, guild_id)
+);
+
+-- 4. Disable RLS on all tables
 ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mimic_access DISABLE ROW LEVEL SECURITY;
+ALTER TABLE wallets DISABLE ROW LEVEL SECURITY;
