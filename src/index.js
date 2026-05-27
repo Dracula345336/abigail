@@ -58,6 +58,9 @@ const {
   activeGames, NIGHT_TIMER, DAY_TIMER
 } = require('./werewolf');
 const { pick, timeSince } = require('./utils');
+const { HandCricketGame, GAME_PHASE: HC_PHASE } = require('./handcricket');
+const activeHCGames = new Map(); // channelId → HandCricketGame
+const hcPlayerMap = new Map();  // userId → channelId (for DM routing)
 
 /* ═══════════════════════════════════════════
    🐺 Werewolf — Mafia Night/Day Phase Functions
@@ -331,9 +334,249 @@ const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  /* ── DM Handler for Mafia Night Actions ── */
+  /* ── DM Handler ── */
   if (!message.guild) {
     const msgContent = message.content.toLowerCase().trim();
+
+    /* ── Hand Cricket DM Commands ── */
+    const hcChannelId = hcPlayerMap.get(message.author.id);
+    if (hcChannelId) {
+      const hcGame = activeHCGames.get(hcChannelId);
+      if (hcGame && hcGame.phase !== HC_PHASE.ENDED) {
+        const num = parseInt(msgContent);
+
+        // Toss number submission (1-6)
+        if (hcGame.phase === HC_PHASE.TOSS && !isNaN(num) && num >= 1 && num <= 6) {
+          const result = hcGame.submitTossNumber(message.author.id, num);
+          if (!result.success) return message.reply(result.message);
+
+          if (result.message === 'waiting_for_opponent') {
+            return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏏 Toss Number Recorded!').setDescription(`You chose **${num}**!\n\nWaiting for your opponent to choose...`).setTimestamp()] });
+          }
+
+          if (result.message === 'toss_resolved') {
+            const channel = hcGame.channel;
+            if (!channel) return;
+
+            // Announce toss result in channel
+            const tossEmbed = new EmbedBuilder()
+              .setColor(0xFFD700)
+              .setTitle('🪙 Toss Result!')
+              .setDescription(
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 🎲 **${client.users.cache.get(hcGame.players[0])?.username || 'Player 1'}** chose: ${EMOJI_NUMBERS[result.p1Num - 1]}\n` +
+                `┣ 🎲 **${client.users.cache.get(hcGame.players[1])?.username || 'Player 2'}** chose: ${EMOJI_NUMBERS[result.p2Num - 1]}\n` +
+                `┣ ➕ **Sum:** ${result.sum} (${result.result})\n` +
+                `┗ 🏆 **Toss Winner:** <@${result.winner}>!`
+              )
+              .setFooter({ text: '🏏 Toss winner: choose bat or bowl in channel!' })
+              .setTimestamp();
+            await channel.send({ embeds: [tossEmbed] });
+
+            // DM toss winner
+            try {
+              await client.users.cache.get(result.winner)?.send({
+                embeds: [new EmbedBuilder()
+                  .setColor(0xFFD700)
+                  .setTitle('🏆 You Won the Toss!')
+                  .setDescription(`Type **bat** or **bowl** in the channel to choose!`)
+                  .setTimestamp()]
+              });
+            } catch (e) {}
+            return;
+          }
+        }
+
+        // Play number submission during game (1-6)
+        if (hcGame.phase === HC_PHASE.PLAYING && !isNaN(num) && num >= 1 && num <= 6) {
+          const result = hcGame.submitPlayNumber(message.author.id, num);
+          if (!result.success) return message.reply(result.message);
+
+          if (result.message === 'waiting_for_opponent') {
+            return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**!\n\nWaiting for your opponent...`).setTimestamp()] });
+          }
+
+          // Ball resolved!
+          const channel = hcGame.channel;
+          if (!channel) return;
+
+          const batsmanName = client.users.cache.get(result.batsman)?.username || 'Batsman';
+          const bowlerName = client.users.cache.get(result.bowler)?.username || 'Bowler';
+
+          if (result.message === 'out') {
+            const outEmbed = new EmbedBuilder()
+              .setColor(0xE74C3C)
+              .setTitle('💀 OUT!')
+              .setDescription(
+                `**${batsmanName}** is OUT!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+                `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+                `┣ 💀 **Same number — OUT!**\n` +
+                `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n` +
+                `┗ 🎯 ${batsmanName} walks back...`
+              )
+              .setTimestamp();
+            await channel.send({ embeds: [outEmbed] });
+          } else {
+            const runsEmbed = new EmbedBuilder()
+              .setColor(0x2ECC71)
+              .setTitle(`🏏 ${result.runsThisBall} Run${result.runsThisBall > 1 ? 's' : ''}!`)
+              .setDescription(
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 🏏 **${batsmanName}** (Batting): ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+                `┣ 🎯 **${bowlerName}** (Bowling): ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+                `┣ 💨 **+${result.runsThisBall} runs!**\n` +
+                `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)\n` +
+                `┗ ${result.runsThisBall >= 4 ? '🔥 Big shot!' : result.runsThisBall === 6 ? '🚀 SIXER!' : '✅ Good running!'}\n`
+              )
+              .setTimestamp();
+            await channel.send({ embeds: [runsEmbed] });
+          }
+
+          // Handle innings end or game over
+          if (result.gameOver) {
+            const winnerName = result.winner ? client.users.cache.get(result.winner)?.username : null;
+            const loserName = result.loser ? client.users.cache.get(result.loser)?.username : null;
+            const p1Score = hcGame.scores[hcGame.players[0]];
+            const p2Score = hcGame.scores[hcGame.players[1]];
+
+            const winEmbed = new EmbedBuilder()
+              .setColor(0xFFD700)
+              .setTitle('🏆 Game Over!')
+              .setDescription(
+                `**${winnerName}** wins the match!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 🏏 **${client.users.cache.get(hcGame.players[0])?.username}**: ${p1Score.runs}/${p1Score.wickets} (${p1Score.balls} balls)\n` +
+                `┣ 🏏 **${client.users.cache.get(hcGame.players[1])?.username}**: ${p2Score.runs}/${p2Score.wickets} (${p2Score.balls} balls)\n` +
+                `┗ 🎉 **${winnerName}** won by ${Math.abs(p1Score.runs - p2Score.runs)} run${Math.abs(p1Score.runs - p2Score.runs) !== 1 ? 's' : ''}!`
+              )
+              .setFooter({ text: '🏏 Hand Cricket — GG!' })
+              .setTimestamp();
+            await channel.send({ embeds: [winEmbed] });
+            activeHCGames.delete(hcChannelId);
+            hcPlayerMap.delete(hcGame.players[0]);
+            hcPlayerMap.delete(hcGame.players[1]);
+            return;
+          }
+
+          if (result.inningsOver) {
+            if (result.nextPhase === 'innings_break') {
+              const p1Score = hcGame.scores[hcGame.players[0]];
+              const p2Score = hcGame.scores[hcGame.players[1]];
+              const firstBatName = client.users.cache.get(hcGame.battingFirst)?.username;
+              const nextBatName = client.users.cache.get(result.nextBatsman)?.username;
+              const nextBowlName = client.users.cache.get(result.nextBowler)?.username;
+
+              const breakEmbed = new EmbedBuilder()
+                .setColor(0xF39C12)
+                .setTitle('⏸️ Innings Break!')
+                .setDescription(
+                  `**${firstBatName}** scored **${hcGame.scores[hcGame.battingFirst].runs}/${hcGame.scores[hcGame.battingFirst].wickets}**\n\n━━━━━━━━━━━━━━━━━━━\n` +
+                  `┣ 🎯 **Target:** ${result.target} runs\n` +
+                  `┣ 🏏 **${nextBatName}** is now batting!\n` +
+                  `┣ 🎯 **${nextBowlName}** is now bowling!\n` +
+                  `┗ 📨 Check your DMs — type a number (1-6)!`
+                )
+                .setFooter({ text: '🏏 2nd Innings starts now!' })
+                .setTimestamp();
+              await channel.send({ embeds: [breakEmbed] });
+
+              hcGame.startSecondInnings();
+
+              // DM both players
+              for (const pid of hcGame.players) {
+                try {
+                  await client.users.cache.get(pid)?.send({
+                    embeds: [new EmbedBuilder()
+                      .setColor(0xF39C12)
+                      .setTitle('🏏 2nd Innings!')
+                      .setDescription(`Type a number **1-6** to play!\n\nYou are ${pid === result.nextBatsman ? '**Batting** 🏏' : '**Bowling** 🎯'}`)
+                      .setTimestamp()]
+                  });
+                } catch (e) {}
+              }
+            } else if (result.nextPhase === 'game_over') {
+              const p1Score = hcGame.scores[hcGame.players[0]];
+              const p2Score = hcGame.scores[hcGame.players[1]];
+              const winnerName = result.winner ? client.users.cache.get(result.winner)?.username : null;
+
+              if (result.isTie) {
+                const tieEmbed = new EmbedBuilder()
+                  .setColor(0xF39C12)
+                  .setTitle('🤝 Match Tied!')
+                  .setDescription(
+                    `Both players scored the same!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+                    `┣ 🏏 **${client.users.cache.get(hcGame.players[0])?.username}**: ${p1Score.runs}/${p1Score.wickets}\n` +
+                    `┗ 🏏 **${client.users.cache.get(hcGame.players[1])?.username}**: ${p2Score.runs}/${p2Score.wickets}`
+                  )
+                  .setFooter({ text: '🏏 Hand Cricket — Tie!' })
+                  .setTimestamp();
+                await channel.send({ embeds: [tieEmbed] });
+              } else {
+                const winEmbed = new EmbedBuilder()
+                  .setColor(0xFFD700)
+                  .setTitle('🏆 Game Over!')
+                  .setDescription(
+                    `**${winnerName}** wins!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+                    `┣ 🏏 **${client.users.cache.get(hcGame.players[0])?.username}**: ${p1Score.runs}/${p1Score.wickets} (${p1Score.balls} balls)\n` +
+                    `┣ 🏏 **${client.users.cache.get(hcGame.players[1])?.username}**: ${p2Score.runs}/${p2Score.wickets} (${p2Score.balls} balls)\n` +
+                    `┗ 🎉 **${winnerName}** won by ${Math.abs(p1Score.runs - p2Score.runs)} run${Math.abs(p1Score.runs - p2Score.runs) !== 1 ? 's' : ''}!`
+                  )
+                  .setFooter({ text: '🏏 Hand Cricket — GG!' })
+                  .setTimestamp();
+                await channel.send({ embeds: [winEmbed] });
+              }
+
+              activeHCGames.delete(hcChannelId);
+              hcPlayerMap.delete(hcGame.players[0]);
+              hcPlayerMap.delete(hcGame.players[1]);
+            }
+          }
+          return;
+        }
+
+        // bat/bowl choice from DM
+        if (hcGame.phase === HC_PHASE.TOSS_CHOICE && (msgContent === 'bat' || msgContent === 'bowl')) {
+          const result = hcGame.chooseBatBowl(message.author.id, msgContent);
+          if (!result.success) return message.reply(result.message);
+
+          const channel = hcGame.channel;
+          if (channel) {
+            const batName = client.users.cache.get(result.battingFirst)?.username;
+            const bowlName = client.users.cache.get(result.bowlingFirst)?.username;
+
+            const startEmbed = new EmbedBuilder()
+              .setColor(0x2ECC71)
+              .setTitle('🏏 Match Started!')
+              .setDescription(
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 🏏 **Batting:** ${batName}\n` +
+                `┣ 🎯 **Bowling:** ${bowlName}\n` +
+                `┣ 📏 **Format:** ${hcGame.maxBalls} balls, ${hcGame.maxWickets} wickets\n` +
+                `┗ 📨 Check your DMs — type a number (1-6)!`
+              )
+              .setFooter({ text: '🏏 Hand Cricket — 1st Innings!' })
+              .setTimestamp();
+            await channel.send({ embeds: [startEmbed] });
+
+            // DM both players
+            for (const pid of hcGame.players) {
+              try {
+                await client.users.cache.get(pid)?.send({
+                  embeds: [new EmbedBuilder()
+                    .setColor(0x2ECC71)
+                    .setTitle('🏏 Match Started!')
+                    .setDescription(`Type a number **1-6** to play!\n\nYou are ${pid === result.battingFirst ? '**Batting** 🏏' : '**Bowling** 🎯'}`)
+                    .setTimestamp()]
+                });
+              } catch (e) {}
+            }
+          }
+          return;
+        }
+      }
+    }
+
+    /* ── Mafia Night Actions (DM) ── */
     if (msgContent.startsWith('w.')) {
       const args = message.content.trim().split(/\s+/);
       const cmd = args[0].toLowerCase();
@@ -802,6 +1045,221 @@ client.on('messageCreate', async (message) => {
         if (result.success) await tryAutoResolveMafiaNight(game);
       }
       return;
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     🏏 Hand Cricket Commands
+     ═══════════════════════════════════════════ */
+
+  if (msgContent.startsWith('hc.')) {
+    const args = message.content.trim().split(/\s+/);
+    const cmd = args[0].toLowerCase();
+
+    /* ── hc.help ── */
+    if (cmd === 'hc.help') {
+      const hcHelp = new EmbedBuilder()
+        .setColor(0x2ECC71)
+        .setTitle('🏏 Hand Cricket — How to Play!')
+        .setDescription('Indian childhood classic — now on Discord!')
+        .addFields(
+          { name: '🎮 Starting', value: '`hc.challenge @user` — Challenge someone\n`hc.accept` — Accept challenge\n`hc.decline` — Decline challenge\n`hc.quit` — Quit current game', inline: false },
+          { name: '🪙 Toss', value: '`hc.toss odd` or `hc.toss even` — Choose toss side\nThen DM the bot a number (1-6)\nSum odd/even decides toss winner!', inline: false },
+          { name: '🏏 Playing', value: 'DM the bot a number (1-6) each ball\n🏏 Batsman & Bowler both choose secretly\n💀 Same number = OUT!\n✅ Different = Batsman scores that many runs', inline: false },
+          { name: '📏 Format', value: '6 balls per innings, 2 wickets = all out\n2 innings each — highest score wins!', inline: false },
+        )
+        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+        .setTimestamp();
+      return message.reply({ embeds: [hcHelp] });
+    }
+
+    /* ── hc.challenge ── */
+    if (cmd === 'hc.challenge') {
+      const target = message.mentions.users.first();
+      if (!target) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🏏 Mention someone to challenge! `hc.challenge @user`').setTimestamp()] });
+      }
+      if (target.id === message.author.id) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🤦 You can\'t challenge yourself!').setTimestamp()] });
+      }
+      if (target.bot) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🤖 You can\'t challenge bots!').setTimestamp()] });
+      }
+
+      // Check if either player is already in a game
+      if (hcPlayerMap.has(message.author.id)) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 You are already in a game! Use `hc.quit` first.').setTimestamp()] });
+      }
+      if (hcPlayerMap.has(target.id)) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`🚫 **${target.username}** is already in a game!`).setTimestamp()] });
+      }
+
+      // Check if there's already a game in this channel
+      if (activeHCGames.has(message.channel.id)) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 There\'s already a game in this channel! Wait for it to finish.').setTimestamp()] });
+      }
+
+      const game = new HandCricketGame(message.author.id, target.id, message.channel.id, message.guild.id);
+      game.channel = message.channel;
+      activeHCGames.set(message.channel.id, game);
+      hcPlayerMap.set(message.author.id, message.channel.id);
+      hcPlayerMap.set(target.id, message.channel.id);
+
+      const challengeEmbed = new EmbedBuilder()
+        .setColor(0xFFD700)
+        .setTitle('🏏 Hand Cricket Challenge!')
+        .setDescription(
+          `**${message.author.username}** challenged **${target.username}** to Hand Cricket!\n\n━━━━━━━━━━━━━━━━━━━\n┣ ✅ **${target.username}**: Type \`hc.accept\`\n┣ ❌ **${target.username}**: Type \`hc.decline\`\n┗ ⏰ Waiting for response...`
+        )
+        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+        .setTimestamp();
+      return message.reply({ embeds: [challengeEmbed] });
+    }
+
+    /* ── hc.accept ── */
+    if (cmd === 'hc.accept') {
+      const game = activeHCGames.get(message.channel.id);
+      if (!game || game.phase !== HC_PHASE.WAITING) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No pending challenge to accept!').setTimestamp()] });
+      }
+      if (message.author.id !== game.opponentId) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the challenged player can accept!').setTimestamp()] });
+      }
+
+      game.accept();
+
+      const acceptEmbed = new EmbedBuilder()
+        .setColor(0x2ECC71)
+        .setTitle('🏏 Challenge Accepted!')
+        .setDescription(
+          `Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🪙 **Toss Time!**\n┣ Both players: type \`hc.toss odd\` or \`hc.toss even\`\n┣ Then DM me a number (1-6) for the toss\n┗ 🤫 Your number is secret!`
+        )
+        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+        .setTimestamp();
+      return message.reply({ embeds: [acceptEmbed] });
+    }
+
+    /* ── hc.decline ── */
+    if (cmd === 'hc.decline') {
+      const game = activeHCGames.get(message.channel.id);
+      if (!game || game.phase !== HC_PHASE.WAITING) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No pending challenge to decline!').setTimestamp()] });
+      }
+      if (message.author.id !== game.opponentId) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the challenged player can decline!').setTimestamp()] });
+      }
+
+      game.decline();
+      activeHCGames.delete(message.channel.id);
+      hcPlayerMap.delete(game.players[0]);
+      hcPlayerMap.delete(game.players[1]);
+
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🏏 Challenge Declined!').setDescription(`**${message.author.username}** declined the challenge.`).setTimestamp()] });
+    }
+
+    /* ── hc.toss ── */
+    if (cmd === 'hc.toss') {
+      const game = activeHCGames.get(message.channel.id);
+      if (!game || game.phase !== HC_PHASE.TOSS) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active toss! Use `hc.challenge` first.').setTimestamp()] });
+      }
+      const choice = args[1]?.toLowerCase();
+      if (!choice || !['odd', 'even'].includes(choice)) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Use `hc.toss odd` or `hc.toss even`!').setTimestamp()] });
+      }
+
+      const result = game.setTossChoice(message.author.id, choice);
+
+      if (result.message === 'waiting') {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🪙 Toss Choice Recorded!').setDescription(`You chose **${choice}**!\n\nWaiting for the other player to choose...`).setTimestamp()] });
+      }
+
+      if (result.message === 'both_chosen') {
+        // Both chose odd/even — now they need to DM numbers
+        const p1Name = client.users.cache.get(game.players[0])?.username;
+        const p2Name = client.users.cache.get(game.players[1])?.username;
+
+        const tossReadyEmbed = new EmbedBuilder()
+          .setColor(0xFFD700)
+          .setTitle('🪙 Toss — Both Chosen!')
+          .setDescription(
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `┣ **${p1Name}**: ${result.p1Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
+            `┣ **${p2Name}**: ${result.p2Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
+            `┗ 📨 **DM me a number (1-6) now!**`
+          )
+          .setFooter({ text: '🏏 Your number is secret — DM only!' })
+          .setTimestamp();
+        await message.reply({ embeds: [tossReadyEmbed] });
+
+        // DM both players
+        for (const pid of game.players) {
+          try {
+            await client.users.cache.get(pid)?.send({
+              embeds: [new EmbedBuilder()
+                .setColor(0xFFD700)
+                .setTitle('🪙 Toss Time!')
+                .setDescription(`Type a number **1-6** to submit your toss number!\\n\\nYour choice is secret — choose wisely!`)
+                .setTimestamp()]
+            });
+          } catch (e) {
+            await message.channel.send(`⚠️ Could not DM <@${pid}> — tell them to enable DMs!`);
+          }
+        }
+        return;
+      }
+
+      if (!result.success) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+      }
+    }
+
+    /* ── hc.score ── */
+    if (cmd === 'hc.score') {
+      const game = activeHCGames.get(message.channel.id);
+      if (!game) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel!').setTimestamp()] });
+      }
+
+      const score = game.getScoreString();
+      const p1Name = client.users.cache.get(game.players[0])?.username || 'Player 1';
+      const p2Name = client.users.cache.get(game.players[1])?.username || 'Player 2';
+      const batName = client.users.cache.get(score.battingNow)?.username || '???';
+      const bowlName = client.users.cache.get(score.bowlingNow)?.username || '???';
+
+      let desc = `━━━━━━━━━━━━━━━━━━━\\n`;
+      desc += `┣ 🏏 **${p1Name}**: ${score.p1.runs}/${score.p1.wickets} (${score.p1.balls} balls)\\n`;
+      desc += `┣ 🏏 **${p2Name}**: ${score.p2.runs}/${score.p2.wickets} (${score.p2.balls} balls)\\n`;
+
+      if (game.phase === HC_PHASE.PLAYING || game.phase === HC_PHASE.INNINGS_BREAK) {
+        desc += `┣ 🏏 **Batting:** ${batName}\\n`;
+        desc += `┣ 🎯 **Bowling:** ${bowlName}\\n`;
+        desc += `┣ 📏 **Innings:** ${score.currentInnings}/2\\n`;
+      }
+      desc += `┗ 📋 **Phase:** ${game.phase === HC_PHASE.WAITING ? 'Waiting' : game.phase === HC_PHASE.TOSS ? 'Toss' : game.phase === HC_PHASE.TOSS_CHOICE ? 'Toss Choice' : game.phase === HC_PHASE.PLAYING ? 'Playing' : game.phase === HC_PHASE.INNINGS_BREAK ? 'Innings Break' : 'Ended'}`;
+
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏏 Scoreboard').setDescription(desc).setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' }).setTimestamp()] });
+    }
+
+    /* ── hc.quit ── */
+    if (cmd === 'hc.quit') {
+      const hcChannelId = hcPlayerMap.get(message.author.id);
+      if (!hcChannelId) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 You are not in any game!').setTimestamp()] });
+      }
+      const game = activeHCGames.get(hcChannelId);
+      if (!game) {
+        hcPlayerMap.delete(message.author.id);
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game found!').setTimestamp()] });
+      }
+
+      const result = game.quit(message.author.id);
+      const winnerName = result.winner ? client.users.cache.get(result.winner)?.username : null;
+      activeHCGames.delete(hcChannelId);
+      hcPlayerMap.delete(game.players[0]);
+      hcPlayerMap.delete(game.players[1]);
+
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🏏 Game Quit!').setDescription(`**${message.author.username}** quit the game! ${winnerName ? `**${winnerName}** wins!` : ''}`).setTimestamp()] });
     }
   }
 
