@@ -114,8 +114,9 @@ module.exports = {
       });
     }
 
-    // ── Gambling Logic ──
-    // 45% chance to win, multipliers: 0.5x (10%), 1.5x (15%), 2x (10%), 2.5x (5%), 5x (3%), 10x (2%)
+    // ── Gambling Logic ── 50/50 Fair Gamble
+    // WIN SIDE (50%): 1.5x (20%), 2x (15%), 2.5x (8%), 5x (5%), 10x (2%)
+    // LOSE SIDE (50%): total loss (35%), half loss (15%)
     const roll = Math.random() * 100;
     let multiplier, result;
 
@@ -123,28 +124,28 @@ module.exports = {
       // 2% — 10x JACKPOT
       multiplier = 10;
       result = 'jackpot';
-    } else if (roll < 5) {
-      // 3% — 5x MEGA WIN
+    } else if (roll < 7) {
+      // 5% — 5x MEGA WIN
       multiplier = 5;
       result = 'mega';
-    } else if (roll < 10) {
-      // 5% — 2.5x BIG WIN
+    } else if (roll < 15) {
+      // 8% — 2.5x BIG WIN
       multiplier = 2.5;
       result = 'big';
-    } else if (roll < 20) {
-      // 10% — 2x DOUBLE
+    } else if (roll < 30) {
+      // 15% — 2x DOUBLE
       multiplier = 2;
       result = 'double';
-    } else if (roll < 35) {
-      // 15% — 1.5x NICE WIN
+    } else if (roll < 50) {
+      // 20% — 1.5x NICE WIN
       multiplier = 1.5;
       result = 'nice';
-    } else if (roll < 45) {
-      // 10% — 0.5x (get half back)
+    } else if (roll < 65) {
+      // 15% — HALF LOSS (lose 50%)
       multiplier = 0.5;
       result = 'half';
     } else {
-      // 55% — LOSE
+      // 35% — TOTAL LOSS
       multiplier = 0;
       result = 'lose';
     }
