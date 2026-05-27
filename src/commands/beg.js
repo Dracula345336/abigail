@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
+const { getOrCreateWallet, safeWallet, CURRENCY } = require('../wallet-helpers');
 
-const CURRENCY = '₹';
 const BEG_COOLDOWN = 30 * 60 * 1000; // 30 minutes
 
 const BEG_SUCCESS = [
@@ -36,20 +36,11 @@ module.exports = {
     const userId = interaction.user.id;
     const guildId = interaction.guild.id;
 
-    let { data: wallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('guild_id', guildId)
-      .maybeSingle();
-
-    if (!wallet) {
-      const { data: newWallet } = await supabase
-        .from('wallets')
-        .insert({ user_id: userId, guild_id: guildId, balance: 0, bank: 0, username: interaction.user.username })
-        .select().single();
-      wallet = newWallet;
+    const rawWallet = await getOrCreateWallet(supabase, userId, guildId, interaction.user.username);
+    if (!rawWallet) {
+      return interaction.reply({ content: '💔 Could not create your wallet! Make sure the `wallets` table exists and RLS is disabled.', flags: MessageFlags.Ephemeral });
     }
+    const wallet = safeWallet(rawWallet);
 
     const now = new Date();
     const lastBeg = wallet.last_beg ? new Date(wallet.last_beg) : null;
@@ -82,7 +73,7 @@ module.exports = {
       message = BEG_FAIL[Math.floor(Math.random() * BEG_FAIL.length)];
     }
 
-    const newBalance = (wallet.balance || 0) + amount;
+    const newBalance = wallet.balance + amount;
 
     await supabase
       .from('wallets')

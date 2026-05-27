@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
+const { getOrCreateWallet, safeWallet, CURRENCY } = require('../wallet-helpers');
 
-const CURRENCY = '₹';
 const ROB_COOLDOWN = 2 * 60 * 60 * 1000; // 2 hours
 
 const ROB_SUCCESS = [
@@ -46,22 +46,14 @@ module.exports = {
       return interaction.reply({ content: '🤖 You can\'t rob bots!', flags: MessageFlags.Ephemeral });
     }
 
-    // Fetch both wallets
-    let { data: wallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('guild_id', guildId)
-      .maybeSingle();
-
-    if (!wallet) {
-      const { data: newWallet } = await supabase
-        .from('wallets')
-        .insert({ user_id: userId, guild_id: guildId, balance: 0, bank: 0, username: interaction.user.username })
-        .select().single();
-      wallet = newWallet;
+    // Fetch robber's wallet
+    const rawWallet = await getOrCreateWallet(supabase, userId, guildId, interaction.user.username);
+    if (!rawWallet) {
+      return interaction.reply({ content: '💔 Could not create your wallet! Make sure the `wallets` table exists and RLS is disabled.', flags: MessageFlags.Ephemeral });
     }
+    const wallet = safeWallet(rawWallet);
 
+    // Fetch target's wallet
     let { data: targetWallet } = await supabase
       .from('wallets')
       .select('*')
@@ -78,6 +70,7 @@ module.exports = {
           .setTimestamp()],
       });
     }
+    targetWallet = safeWallet(targetWallet);
 
     // Check cooldown
     const now = new Date();
@@ -99,7 +92,7 @@ module.exports = {
     }
 
     // Check if target has money
-    if ((targetWallet.balance || 0) <= 0) {
+    if (targetWallet.balance <= 0) {
       return interaction.reply({
         embeds: [new EmbedBuilder()
           .setColor(0x95A5A6)
@@ -110,7 +103,7 @@ module.exports = {
     }
 
     // Check if robber has money (risk losing some)
-    if ((wallet.balance || 0) < 100) {
+    if (wallet.balance < 100) {
       return interaction.reply({
         embeds: [new EmbedBuilder()
           .setColor(0xE74C3C)
@@ -128,18 +121,18 @@ module.exports = {
     if (success) {
       // Steal 10-40% of target's wallet
       const stealPercent = 0.1 + Math.random() * 0.3;
-      amount = Math.floor((targetWallet.balance || 0) * stealPercent);
+      amount = Math.floor(targetWallet.balance * stealPercent);
       if (amount < 10) amount = 10;
-      robberNewBal = (wallet.balance || 0) + amount;
-      targetNewBal = (targetWallet.balance || 0) - amount;
+      robberNewBal = wallet.balance + amount;
+      targetNewBal = targetWallet.balance - amount;
       message = ROB_SUCCESS[Math.floor(Math.random() * ROB_SUCCESS.length)];
     } else {
       // Lose 5-15% of your own wallet as fine
       const finePercent = 0.05 + Math.random() * 0.1;
-      amount = Math.floor((wallet.balance || 0) * finePercent);
+      amount = Math.floor(wallet.balance * finePercent);
       if (amount < 10) amount = 10;
-      robberNewBal = (wallet.balance || 0) - amount;
-      targetNewBal = (targetWallet.balance || 0) + Math.floor(amount * 0.5); // victim gets half the fine
+      robberNewBal = wallet.balance - amount;
+      targetNewBal = targetWallet.balance + Math.floor(amount * 0.5); // victim gets half the fine
       message = ROB_FAIL[Math.floor(Math.random() * ROB_FAIL.length)];
     }
 

@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
+const { getOrCreateWallet, safeWallet, CURRENCY } = require('../wallet-helpers');
 
-const CURRENCY = '₹';
 const DAILY_AMOUNT = 500;
 const DAILY_COOLDOWN = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -30,27 +30,11 @@ module.exports = {
     const userId = interaction.user.id;
     const guildId = interaction.guild.id;
 
-    // Fetch wallet
-    let { data: wallet, error } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('guild_id', guildId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Daily wallet fetch error:', error);
-      return interaction.reply({ content: '💔 Something went wrong!', flags: MessageFlags.Ephemeral });
+    const rawWallet = await getOrCreateWallet(supabase, userId, guildId, interaction.user.username);
+    if (!rawWallet) {
+      return interaction.reply({ content: '💔 Could not create your wallet! Make sure the `wallets` table exists and RLS is disabled.', flags: MessageFlags.Ephemeral });
     }
-
-    // Create wallet if needed
-    if (!wallet) {
-      const { data: newWallet } = await supabase
-        .from('wallets')
-        .insert({ user_id: userId, guild_id: guildId, balance: 0, bank: 0, username: interaction.user.username })
-        .select().single();
-      wallet = newWallet;
-    }
+    const wallet = safeWallet(rawWallet);
 
     // Check cooldown
     const now = new Date();
@@ -75,7 +59,7 @@ module.exports = {
 
     // Give daily reward
     const amount = DAILY_AMOUNT + Math.floor(Math.random() * 200); // 500-700
-    const newBalance = (wallet.balance || 0) + amount;
+    const newBalance = wallet.balance + amount;
     const message = DAILY_MESSAGES[Math.floor(Math.random() * DAILY_MESSAGES.length)];
 
     await supabase
