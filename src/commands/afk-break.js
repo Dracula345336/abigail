@@ -83,6 +83,8 @@ module.exports = {
       } catch (e) { console.error('Could not restore nickname:', e.message); }
     }
 
+    const breakDesc = `**${interaction.member?.displayName || interaction.user.username}** broke **${displayName}**'s AFK!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${timeSince(afkData.afk_time)}\``;
+
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
       .setAuthor({
@@ -90,12 +92,8 @@ module.exports = {
         iconURL: avatarURL,
       })
       .setTitle('🔨 AFK Broken!')
-      .setDescription(`**${interaction.member?.displayName || interaction.user.username}** broke **${displayName}**'s AFK!`)
+      .setDescription(breakDesc)
       .setThumbnail(avatarURL)
-      .addFields(
-        { name: '📝 Their reason was', value: `*${afkData.reason}*`, inline: true },
-        { name: '⏰ They were away for', value: `**${timeSince(afkData.afk_time)}**`, inline: true },
-      )
       .setFooter({ text: `💨 Forcefully returned by ${interaction.user.username}` })
       .setTimestamp();
 

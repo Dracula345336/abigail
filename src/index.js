@@ -466,6 +466,8 @@ client.on('messageCreate', async (message) => {
       return message.reply('💔 Something went wrong! **Quick fix:** Go to Supabase Dashboard → SQL Editor → Run: `ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;`').catch(console.error);
     }
 
+    const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${reason}\`\n┗ ⏱️ **Went away:** <t:${Math.floor(Date.now() / 1000)}:R>`;
+
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
       .setAuthor({
@@ -473,12 +475,8 @@ client.on('messageCreate', async (message) => {
         iconURL: message.author.displayAvatarURL({ dynamic: true }),
       })
       .setTitle(isBreak ? '☕ Break Time!' : '🌙 AFK Mode Activated')
-      .setDescription(pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES))
+      .setDescription(styledDesc)
       .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 256 }))
-      .addFields(
-        { name: '📝 Reason', value: `*${reason}*`, inline: true },
-        { name: '⏰ Went away', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
-      )
       .setFooter({ text: `💕 I'll be waiting for you, ${message.author.username}…` })
       .setTimestamp();
 
@@ -516,6 +514,8 @@ client.on('messageCreate', async (message) => {
     if (afkData) {
       const away = timeSince(afkData.afk_time);
 
+      const returnDesc = `Welcome back <@${message.author.id}>!\nI have removed your AFK status.\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``;
+
       const embed = new EmbedBuilder()
         .setColor(0xFF1493)
         .setAuthor({
@@ -523,12 +523,8 @@ client.on('messageCreate', async (message) => {
           iconURL: message.author.displayAvatarURL({ dynamic: true }),
         })
         .setTitle('💝 Welcome Back!')
-        .setDescription(pick(AFK_RETURN_MESSAGES))
+        .setDescription(returnDesc)
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
-        .addFields(
-          { name: '⏰ You were away for', value: `**${away}**`, inline: true },
-          { name: '📝 Your reason was', value: `*${afkData.reason}*`, inline: true },
-        )
         .setFooter({ text: "💫 So glad you're back!" })
         .setTimestamp();
 
@@ -587,6 +583,8 @@ client.on('messageCreate', async (message) => {
         if (mentionedAfk) {
           const away = timeSince(mentionedAfk.afk_time);
 
+          const mentionDesc = `${pick(AFK_MENTION_MESSAGES)}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${mentionedAfk.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``;
+
           const embed = new EmbedBuilder()
             .setColor(0xE91E63)
             .setAuthor({
@@ -594,12 +592,8 @@ client.on('messageCreate', async (message) => {
               iconURL: mentionedAfk.avatar_url,
             })
             .setTitle("🌙 They're Away Right Now")
-            .setDescription(pick(AFK_MENTION_MESSAGES))
+            .setDescription(mentionDesc)
             .setThumbnail(mentionedAfk.avatar_url)
-            .addFields(
-              { name: '📝 Reason', value: `*${mentionedAfk.reason}*`, inline: true },
-              { name: '⏰ Away for', value: `**${away}**`, inline: true },
-            )
             .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon` })
             .setTimestamp();
 

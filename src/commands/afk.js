@@ -126,6 +126,8 @@ module.exports = {
       }
     }
 
+    const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${reason}\`\n┗ ⏱️ **Went away:** <t:${Math.floor(Date.now() / 1000)}:R>`;
+
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
       .setAuthor({
@@ -133,12 +135,8 @@ module.exports = {
         iconURL: avatarURL,
       })
       .setTitle(isBreak ? '☕ Break Time!' : '🌙 AFK Mode Activated')
-      .setDescription(pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES))
+      .setDescription(styledDesc)
       .setThumbnail(avatarURL)
-      .addFields(
-        { name: '📝 Reason', value: `*${reason}*`, inline: true },
-        { name: '⏰ Went away', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
-      )
       .setFooter({ text: `💕 I'll be waiting for you, ${interaction.user.username}…` })
       .setTimestamp();
 
