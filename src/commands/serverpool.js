@@ -24,7 +24,7 @@ module.exports = {
 
     if (poolError) {
       console.error('Pool fetch error:', poolError);
-      return interaction.reply({ content: '💔 Something went wrong!', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: `💔 Pool error: \`${poolError.message}\` (code: ${poolError.code})`, flags: MessageFlags.Ephemeral });
     }
 
     if (!pool) {
@@ -40,7 +40,7 @@ module.exports = {
     }
 
     // Get top 10 donors
-    const { data: donors } = await supabase
+    const { data: donors, error: donorsError } = await supabase
       .from('pool_donors')
       .select('*')
       .eq('guild_id', guildId)
@@ -48,7 +48,9 @@ module.exports = {
       .limit(10);
 
     let donorList = '';
-    if (donors && donors.length > 0) {
+    if (donorsError) {
+      donorList = 'Could not load donors.';
+    } else if (donors && donors.length > 0) {
       const medals = ['🥇', '🥈', '🥉'];
       for (let i = 0; i < donors.length; i++) {
         const d = donors[i];
@@ -70,7 +72,7 @@ module.exports = {
         `┗ 🏷️ **Server:** ${interaction.guild.name}`
       )
       .addFields({ name: '🏆 Top Donors', value: donorList, inline: false })
-      .setFooter({ text: '💕 Use /donate to contribute — /event for admin distribution' })
+      .setFooter({ text: '💕 /donate to contribute — /event give to distribute (Admin)' })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });

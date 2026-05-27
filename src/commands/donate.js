@@ -75,27 +75,26 @@ module.exports = {
       });
     }
 
-    // Deduct from wallet
-    const newBalance = wallet.balance - donateAmount;
+    // ── FIRST: Add to server pool (BEFORE deducting from wallet) ──
+    // This way if pool insert fails, user doesn't lose money
 
-    await supabase
-      .from('wallets')
-      .update({ balance: newBalance, username: interaction.user.username })
-      .eq('user_id', userId)
-      .eq('guild_id', guildId);
-
-    // Add to server pool
-    // First, get or create the server pool
-    const { data: pool } = await supabase
+    // Get or create the server pool
+    const { data: pool, error: poolFetchError } = await supabase
       .from('server_pools')
       .select('*')
       .eq('guild_id', guildId)
       .maybeSingle();
 
+    if (poolFetchError) {
+      console.error('Pool fetch error:', poolFetchError);
+      return interaction.reply({ content: `💔 Server pool error: \`${poolFetchError.message}\` (code: ${poolFetchError.code})`, flags: MessageFlags.Ephemeral });
+    }
+
+    let poolInsertError = null;
+
     if (pool) {
       const newPoolBalance = (pool.balance || 0) + donateAmount;
       const newTotalDonated = (pool.total_donated || 0) + donateAmount;
-      const newDonorCount = (pool.donor_count || 0);
 
       // Check if this user already donated before
       const { data: donorRecord } = await supabase
@@ -105,19 +104,18 @@ module.exports = {
         .eq('guild_id', guildId)
         .maybeSingle();
 
-      let donorCountUpdate = 0;
-      if (!donorRecord) {
-        donorCountUpdate = 1;
-      }
+      const donorCountUpdate = donorRecord ? 0 : 1;
 
-      await supabase
+      const { error: poolUpdateErr } = await supabase
         .from('server_pools')
         .update({
           balance: newPoolBalance,
           total_donated: newTotalDonated,
-          donor_count: newDonorCount + donorCountUpdate,
+          donor_count: (pool.donor_count || 0) + donorCountUpdate,
         })
         .eq('guild_id', guildId);
+
+      if (poolUpdateErr) poolInsertError = poolUpdateErr;
 
       // Upsert donor record
       if (donorRecord) {
@@ -143,7 +141,7 @@ module.exports = {
       }
     } else {
       // Create server pool
-      await supabase
+      const { error: poolCreateErr } = await supabase
         .from('server_pools')
         .insert({
           guild_id: guildId,
@@ -152,6 +150,8 @@ module.exports = {
           total_donated: donateAmount,
           donor_count: 1,
         });
+
+      if (poolCreateErr) poolInsertError = poolCreateErr;
 
       // Create donor record
       await supabase
@@ -164,6 +164,21 @@ module.exports = {
           username: interaction.user.username,
         });
     }
+
+    // If pool insert failed, DON'T deduct from wallet
+    if (poolInsertError) {
+      console.error('Pool update/create error:', poolInsertError);
+      return interaction.reply({ content: `💔 Could not add to server pool: \`${poolInsertError.message}\` (code: ${poolInsertError.code})\n\nYour money is safe! Fix the error and try again.`, flags: MessageFlags.Ephemeral });
+    }
+
+    // ── NOW: Deduct from wallet (pool was successful) ──
+    const newBalance = wallet.balance - donateAmount;
+
+    await supabase
+      .from('wallets')
+      .update({ balance: newBalance, username: interaction.user.username })
+      .eq('user_id', userId)
+      .eq('guild_id', guildId);
 
     const message = DONATE_MESSAGES[Math.floor(Math.random() * DONATE_MESSAGES.length)];
 
