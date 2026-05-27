@@ -48,31 +48,35 @@ module.exports = {
       }
 
       if (supabase) {
-        const { data: existing } = await supabase
-          .from('mimic_access')
-          .select('user_id')
-          .eq('guild_id', interaction.guild.id)
-          .eq('user_id', targetUser.id)
-          .maybeSingle();
+        try {
+          const { data: existing } = await supabase
+            .from('mimic_access')
+            .select('user_id')
+            .eq('guild_id', interaction.guild.id)
+            .eq('user_id', targetUser.id)
+            .maybeSingle();
 
-        if (existing) {
-          return interaction.reply({
-            content: `✅ **${targetUser.username}** already has mimic access!`,
-            flags: MessageFlags.Ephemeral,
-          });
-        }
+          if (existing) {
+            return interaction.reply({
+              content: `✅ **${targetUser.username}** already has mimic access!`,
+              flags: MessageFlags.Ephemeral,
+            });
+          }
 
-        const { error } = await supabase
-          .from('mimic_access')
-          .insert({
-            guild_id: interaction.guild.id,
-            user_id: targetUser.id,
-            username: targetUser.username,
-            granted_by: interaction.user.id,
-          });
+          const { error } = await supabase
+            .from('mimic_access')
+            .insert({
+              guild_id: interaction.guild.id,
+              user_id: targetUser.id,
+              username: targetUser.username,
+              granted_by: interaction.user.id,
+            });
 
-        if (error) {
-          console.error('Mimic access add error:', error);
+          if (error) {
+            console.error('Mimic access add error:', error.message);
+          }
+        } catch (err) {
+          console.error('Mimic access DB error (add):', err.message);
         }
       }
 
@@ -104,11 +108,15 @@ module.exports = {
       }
 
       if (supabase) {
-        await supabase
-          .from('mimic_access')
-          .delete()
-          .eq('guild_id', interaction.guild.id)
-          .eq('user_id', targetUser.id);
+        try {
+          await supabase
+            .from('mimic_access')
+            .delete()
+            .eq('guild_id', interaction.guild.id)
+            .eq('user_id', targetUser.id);
+        } catch (err) {
+          console.error('Mimic access DB error (remove):', err.message);
+        }
       }
 
       // Remove from in-memory
@@ -131,11 +139,15 @@ module.exports = {
       let accessList = [];
 
       if (supabase) {
-        const { data } = await supabase
-          .from('mimic_access')
-          .select('*')
-          .eq('guild_id', interaction.guild.id);
-        accessList = data || [];
+        try {
+          const { data } = await supabase
+            .from('mimic_access')
+            .select('*')
+            .eq('guild_id', interaction.guild.id);
+          accessList = data || [];
+        } catch (err) {
+          console.error('Mimic access DB error (list):', err.message);
+        }
       }
 
       // Also include in-memory

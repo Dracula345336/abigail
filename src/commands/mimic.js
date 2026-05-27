@@ -34,15 +34,19 @@ module.exports = {
     const isOwner = interaction.guild.ownerId === interaction.user.id;
     let hasAccess = isOwner;
 
-    // Check Supabase access list
+    // Check Supabase access list (with error handling if table doesn't exist)
     if (!hasAccess && supabase) {
-      const { data } = await supabase
-        .from('mimic_access')
-        .select('user_id')
-        .eq('guild_id', interaction.guild.id)
-        .eq('user_id', interaction.user.id)
-        .maybeSingle();
-      hasAccess = !!data;
+      try {
+        const { data } = await supabase
+          .from('mimic_access')
+          .select('user_id')
+          .eq('guild_id', interaction.guild.id)
+          .eq('user_id', interaction.user.id)
+          .maybeSingle();
+        hasAccess = !!data;
+      } catch (err) {
+        console.error('Mimic access DB check failed:', err.message);
+      }
     }
 
     // Fallback: check in-memory access list on client
@@ -61,6 +65,15 @@ module.exports = {
     /* ── Guards ── */
     if (targetUser.id === interaction.user.id) {
       return interaction.reply({ content: "🪞 Mimicking yourself? That's just talking, sweetheart!", flags: MessageFlags.Ephemeral });
+    }
+
+    // Check Manage Webhooks permission before trying
+    const botMember = await interaction.guild.members.fetchMe();
+    if (!botMember.permissionsIn(interaction.channel).has('ManageWebhooks')) {
+      return interaction.reply({
+        content: '🚫 I need **Manage Webhooks** permission in this channel to mimic!\n\n**Fix:** Server Settings → Roles → Bot role → ✅ Manage Webhooks ON',
+        flags: MessageFlags.Ephemeral,
+      });
     }
 
     const targetMember = interaction.options.getMember('user');
@@ -102,9 +115,9 @@ module.exports = {
         flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
-      console.error('Mimic error:', error);
+      console.error('Mimic webhook error:', error.message);
       await interaction.reply({
-        content: '💔 Couldn\'t mimic that user — make sure I have **Manage Webhooks** permission in this channel!',
+        content: `💔 Couldn't mimic — **${error.message}**\n\n💡 Make sure I have **Manage Webhooks** permission!`,
         flags: MessageFlags.Ephemeral,
       });
     }
