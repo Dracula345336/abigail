@@ -33,7 +33,6 @@ const REQUIRED_ENV = ['DISCORD_TOKEN'];
 const missingEnv = REQUIRED_ENV.filter(key => !process.env[key]);
 if (missingEnv.length) {
   console.error(`❌ Missing required environment variables: ${missingEnv.join(', ')}`);
-  console.error('   Please check your .env file or environment configuration.');
   process.exit(1);
 }
 
@@ -45,27 +44,26 @@ let supabase = null;
 if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY)) {
   try {
     supabase = require('./db');
-    if (supabase) {
-      console.log('✅ Supabase ready — AFK features enabled!');
-    }
+    if (supabase) console.log('✅ Supabase ready — AFK features enabled!');
   } catch (err) {
     console.error('❌ Failed to initialize Supabase:', err.message);
-    console.error('   AFK features will be disabled.');
   }
 } else {
-  console.warn('⚠️  SUPABASE_URL or database key not set — AFK features will be disabled.');
-  console.warn('   Set SUPABASE_SERVICE_KEY (best) or SUPABASE_KEY from Supabase Dashboard → Settings → API');
+  console.warn('⚠️  SUPABASE_URL or database key not set — AFK features disabled.');
 }
 
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
-const { WerewolfGame, GAME_STATE, ROLE, ROLE_COLORS, activeGames, NIGHT_TIMER, DAY_TIMER } = require('./werewolf');
+const {
+  WerewolfGame, GAME_MODE, GAME_STATE, ROLE, ROLE_EMOJI, ROLE_COLORS,
+  activeGames, NIGHT_TIMER, DAY_TIMER
+} = require('./werewolf');
 const { pick, timeSince } = require('./utils');
 
 /* ═══════════════════════════════════════════
-   🐺 Werewolf Night/Day Phase Functions
+   🐺 Werewolf — Mafia Night/Day Phase Functions
    ═══════════════════════════════════════════ */
 
-async function startNightPhase(game) {
+async function startMafiaNight(game) {
   game.startNight();
   const channel = game.channel;
   if (!channel) return;
@@ -74,45 +72,38 @@ async function startNightPhase(game) {
 
   const nightEmbed = new EmbedBuilder()
     .setColor(0x1a1a2e)
-    .setTitle(`🌙 Night ${game.round} — The Village Sleeps...`)
+    .setTitle(`🌙 Night ${game.round} — The Town Sleeps...`)
     .setDescription(
-      `The village falls silent as darkness descends...\nThe wolves are hunting, the doctor is on duty, the seer is divining.\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🐺 **Wolves:** Choose your victim\n┣ 💊 **Doctor:** Choose who to save\n┣ 🔮 **Seer:** Choose who to investigate\n┗ ⏰ **Timer:** ${NIGHT_TIMER} seconds\n\n🤫 Check your DMs for action instructions!`
+      `The mafia is choosing their victim...\nThe doctor may save someone...\nThe cop may investigate...\n\n⏰ You have **${NIGHT_TIMER} seconds** for night actions!`
     )
     .addFields({ name: `👥 Alive Players (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false })
-    .setFooter({ text: '🤫 Night actions are secret — do not share!' })
+    .setFooter({ text: '🤫 Night actions are secret — check your DMs!' })
     .setTimestamp();
   await channel.send({ embeds: [nightEmbed] });
 
-  // DM wolves, doctor, seer their night action reminders
+  // DM role-specific actions
   for (const [, player] of game.players) {
     if (!player.alive) continue;
     try {
       if (player.role === ROLE.WOLF) {
         const otherWolves = game.getAliveWolves().filter(w => w.user.id !== player.user.id);
-        const wolfMates = otherWolves.length > 0
-          ? `\n\n🐺 Your wolf teammates:\n${otherWolves.map(w => `┣ **${w.number}.** ${w.user.username}`).join('\n')}${otherWolves.length > 0 ? '\n┗' : ''}`
-          : '\n\n🐺 You are the only wolf — choose wisely!';
         await player.user.send({
           embeds: [new EmbedBuilder()
             .setColor(0xE74C3C)
-            .setTitle(`🌙 Night ${game.round} — Wolf Action`)
+            .setTitle(`🌙 Night ${game.round} — Mafia Kill`)
             .setDescription(
-              `Choose your victim!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🩸 Use: \`w.kill <number>\`\n┗ 🎯 Pick from alive players${wolfMates}\n\nAlive players:\n${aliveList}`
+              `Choose your victim!\n\nUse \`w.nightkill <number>\` or \`w.nk <number>\`\n\n${otherWolves.length > 0 ? `🐺 Your mafia teammates:\n${otherWolves.map(w => `**${w.number}.** ${w.user.username}`).join('\n')}` : 'You are the only mafia!'}\n\nAlive players:\n${aliveList}`
             )
             .setFooter({ text: '🤫 Keep your identity secret!' })
             .setTimestamp()]
         });
       } else if (player.role === ROLE.DOCTOR) {
-        const saveHint = game.lastProtected
-          ? `\n\n⚠️ You saved <@${game.lastProtected}> last night — pick someone else!`
-          : '\n\n💡 This is your first night — save anyone!';
+        const saveHint = game.lastProtected ? `⚠️ You saved <@${game.lastProtected}> last night — pick someone else!` : '💡 First night — save anyone!';
         await player.user.send({
           embeds: [new EmbedBuilder()
             .setColor(0x3498DB)
-            .setTitle(`🌙 Night ${game.round} — Doctor Action`)
-            .setDescription(
-              `Choose someone to protect!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 💉 Use: \`w.save <number>\`\n┗ 🛡️ You can save anyone alive${saveHint}\n\nAlive players:\n${aliveList}`
-            )
+            .setTitle(`🌙 Night ${game.round} — Doctor Save`)
+            .setDescription(`Choose someone to protect!\n\nUse \`w.save <number>\`\n\n${saveHint}\n\nAlive players:\n${aliveList}`)
             .setFooter({ text: '💊 One life saved is one battle won!' })
             .setTimestamp()]
         });
@@ -121,10 +112,8 @@ async function startNightPhase(game) {
         await player.user.send({
           embeds: [new EmbedBuilder()
             .setColor(0x9B59B6)
-            .setTitle(`🌙 Night ${game.round} — Seer Action`)
-            .setDescription(
-              `Choose someone to investigate!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🔍 Use: \`w.check <number>\`\n┗ 👁️ You will learn if they are a wolf\n\nOther alive players:\n${checkList}`
-            )
+            .setTitle(`🌙 Night ${game.round} — Cop Investigate`)
+            .setDescription(`Choose someone to investigate!\n\nUse \`w.check <number>\`\n\nOther alive players:\n${checkList}`)
             .setFooter({ text: '🔮 Use your knowledge wisely!' })
             .setTimestamp()]
         });
@@ -134,51 +123,41 @@ async function startNightPhase(game) {
     }
   }
 
-  // Night timer
   game.nightTimer = setTimeout(async () => {
     if (game.state !== GAME_STATE.NIGHT) return;
-    // Night ended by timer — resolve
     const results = game.resolveNight();
-    await startDayPhase(game, results);
+    await startMafiaDay(game, results);
   }, NIGHT_TIMER * 1000);
 }
 
-async function tryAutoResolveNight(game) {
-  // Check if all night actions are done
+async function tryAutoResolveMafiaNight(game) {
   if (!game.allNightActionsDone()) return false;
-
-  // All actions done — resolve immediately
   if (game.nightTimer) { clearTimeout(game.nightTimer); game.nightTimer = null; }
   const results = game.resolveNight();
-  await startDayPhase(game, results);
+  await startMafiaDay(game, results);
   return true;
 }
 
-async function startDayPhase(game, nightResults) {
+async function startMafiaDay(game, nightResults) {
   game.startDay();
   const channel = game.channel;
   if (!channel) return;
 
-  // Build day announcement based on night results
   let dayDesc = '';
   if (nightResults.killed) {
-    dayDesc = `The village wakes to terrible news...\n\n━━━━━━━━━━━━━━━━━━━\n┣ 💀 **${nightResults.killed.user.username}** was killed by the wolves!\n┗ 🪦 They were **${nightResults.killed.role}**`;
+    dayDesc = `💀 **${nightResults.killed.user.username}** was killed by the mafia last night!\nThey were ${ROLE_EMOJI[nightResults.killed.role]} **${nightResults.killed.role}**.`;
   } else if (nightResults.saved) {
-    dayDesc = `The village wakes with relief...\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🏥 Someone was attacked last night\n┗ ✨ But the **Doctor saved them**!`;
-  } else if (nightResults.wolfTarget) {
-    dayDesc = `A mysterious night passes...\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🌙 The wolves chose a target\n┗ 🤔 But somehow... no one died`;
+    dayDesc = '🏥 Someone was attacked but the **doctor saved them**! No one died.';
   } else {
-    dayDesc = `A quiet night passes...\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🌙 No one was attacked\n┗ 😴 The village slept peacefully`;
+    dayDesc = '🌙 A quiet night... no one was attacked.';
   }
 
-  // Check win after night kill
   const winCheck = game.checkWin();
   if (winCheck) {
     const winEmbed = new EmbedBuilder()
       .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
-      .setTitle(winCheck.winner === 'wolves' ? '🐺 Wolves Win!' : '🏘️ Villagers Win!')
+      .setTitle(winCheck.winner === 'wolves' ? '🐺 Mafia Wins!' : '🏘️ Town Wins!')
       .setDescription(`${dayDesc}\n\n${winCheck.message}\n\n${game.getFullPlayerListString()}`)
-      .setFooter({ text: '🐺 Game Over — Thanks for playing!' })
       .setTimestamp();
     await channel.send({ embeds: [winEmbed] });
     activeGames.delete(channel.id);
@@ -189,62 +168,51 @@ async function startDayPhase(game, nightResults) {
   const dayEmbed = new EmbedBuilder()
     .setColor(0xFFD700)
     .setTitle(`☀️ Day ${game.round} — Discuss & Vote!`)
-    .setDescription(
-      `${dayDesc}\n\nDiscuss who you think is a wolf!\nThen vote to eliminate a suspect.\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🗳️ Use: \`w.shoot <number>\`\n┣ ⏰ Timer: ${DAY_TIMER} seconds\n┗ 💡 Majority vote = elimination!`
-    )
+    .setDescription(`${dayDesc}\n\nVote to lynch a suspect!\nUse \`w.vote <number>\` to vote\nUse \`w.unvote\` to remove your vote\nUse \`w.votecount\` to see votes`)
     .addFields({ name: `👥 Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false })
-    .setFooter({ text: `☀️ Day ${game.round} — Find the wolves!` })
+    .setFooter({ text: `⏰ ${DAY_TIMER} seconds to vote!` })
     .setTimestamp();
   await channel.send({ embeds: [dayEmbed] });
 
-  // Day timer
   game.dayTimer = setTimeout(async () => {
     if (game.state !== GAME_STATE.DAY) return;
-    await resolveDayVote(game);
+    await resolveMafiaVote(game);
   }, DAY_TIMER * 1000);
 }
 
-async function resolveDayVote(game) {
+async function resolveMafiaVote(game) {
   if (game.state !== GAME_STATE.DAY) return;
   const channel = game.channel;
   if (!channel) return;
 
-  // Clear day timer
   if (game.dayTimer) { clearTimeout(game.dayTimer); game.dayTimer = null; }
 
   const tally = game.tallyVotes();
-
   const tallyEmbed = new EmbedBuilder()
     .setColor(0xFF69B4)
     .setTitle('🗳️ Vote Results!')
-    .setDescription(
-      `${tally.message}\n\n━━━━━━━━━━━━━━━━━━━\n┣ ☀️ The village has spoken\n┗ 🐺 The hunt continues...`
-    )
+    .setDescription(`${tally.message}${tally.detail ? '\n\n' + tally.detail : ''}`)
     .setTimestamp();
   await channel.send({ embeds: [tallyEmbed] });
 
-  // Check win
   const winCheck = game.checkWin();
   if (winCheck) {
     const winEmbed = new EmbedBuilder()
       .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
-      .setTitle(winCheck.winner === 'wolves' ? '🐺 Wolves Win!' : '🏘️ Villagers Win!')
+      .setTitle(winCheck.winner === 'wolves' ? '🐺 Mafia Wins!' : '🏘️ Town Wins!')
       .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
-      .setFooter({ text: '🐺 Game Over — Thanks for playing!' })
       .setTimestamp();
     await channel.send({ embeds: [winEmbed] });
     activeGames.delete(channel.id);
     return;
   }
 
-  // Increment round for next night
   game.round++;
-
-  // Next night
-  await startNightPhase(game);
+  await startMafiaNight(game);
 }
 
-// AFK nickname helpers
+/* ── AFK Helpers ── */
+
 function getAfkNickname(currentNickname, username) {
   const base = currentNickname || username;
   const clean = base.replace(/^\[AFK\]\s*/, '');
@@ -255,24 +223,17 @@ function getNormalNickname(currentNickname, username) {
   return base.replace(/^\[AFK\]\s*/, '') || username;
 }
 
-// AFK role helper
 const AFK_ROLE_NAME = 'AFK';
 async function getAfkRole(guild) {
   let role = guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
   if (!role) {
     try {
       role = await guild.roles.create({
-        name: AFK_ROLE_NAME,
-        color: 0x808080,
-        hoist: true,  // Show separately in member list!
-        mentionable: false,
+        name: AFK_ROLE_NAME, color: 0x808080, hoist: true, mentionable: false,
         reason: 'Auto-created AFK role for Sweetheart Bot',
       });
       console.log(`✅ Created AFK role in ${guild.name}`);
-    } catch (err) {
-      console.error('Could not create AFK role:', err.message);
-      return null;
-    }
+    } catch (err) { console.error('Could not create AFK role:', err.message); return null; }
   }
   return role;
 }
@@ -292,8 +253,6 @@ const client = new Client({
 });
 
 client.commands = new Collection();
-
-// Cooldown tracking for AFK mention notifications
 const mentionCooldowns = new Map();
 const AFK_MENTION_COOLDOWN = 30_000;
 
@@ -306,10 +265,6 @@ for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
     console.log(`📁 Loaded command: /${cmd.data.name}`);
   }
 }
-
-/* ═══════════════════════════════════════════
-   🔍  Snipe Storage (deleted messages)
-   ═══════════════════════════════════════════ */
 
 client.snipes = new Map();
 client.mimicLog = new Map();
@@ -325,49 +280,26 @@ client.once(Events.ClientReady, async () => {
   client.user.setActivity('💕 Watching over you');
 
   if (!process.env.CLIENT_ID) {
-    console.error('');
-    console.error('⚠️  CLIENT_ID is not set — slash commands will NOT be registered!');
-    console.error('   Add CLIENT_ID to your environment variables.');
-    console.error('   Get it from: https://discord.com/developers/applications → General Information → Application ID');
-    console.error('');
+    console.error('⚠️  CLIENT_ID not set — slash commands will NOT be registered!');
     return;
   }
 
   const commands = [];
-  for (const [, cmd] of client.commands) {
-    commands.push(cmd.data.toJSON());
-  }
+  for (const [, cmd] of client.commands) commands.push(cmd.data.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-
   try {
     if (process.env.GUILD_ID) {
-      console.log(`🔄 Registering ${commands.length} guild slash command(s) [instant]...`);
-      await rest.put(
-        Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
-        { body: commands }
-      );
-      console.log('✅ Guild slash commands registered! Commands should appear instantly.');
+      console.log(`🔄 Registering ${commands.length} guild slash command(s)...`);
+      await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
+      console.log('✅ Guild slash commands registered!');
     } else {
       console.log(`🔄 Registering ${commands.length} global slash command(s)...`);
-      console.log('   ⚠️  No GUILD_ID set — using global registration.');
-      console.log('   ⚠️  Global commands can take up to 1 HOUR to appear in Discord!');
-      console.log('   💡 Add GUILD_ID to .env for instant guild registration.');
-      await rest.put(
-        Routes.applicationCommands(process.env.CLIENT_ID),
-        { body: commands }
-      );
-      console.log('✅ Global slash commands registered! They may take up to 1 hour to appear.');
+      await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
+      console.log('✅ Global slash commands registered!');
     }
   } catch (error) {
     console.error('❌ Slash command registration failed:', error.message);
-    if (error.status === 401) {
-      console.error('   Your DISCORD_TOKEN may be invalid.');
-    } else if (error.status === 403) {
-      console.error('   Your CLIENT_ID may not match the bot application.');
-    } else if (error.status === 404 && process.env.GUILD_ID) {
-      console.error('   Your GUILD_ID may be incorrect.');
-    }
   }
 });
 
@@ -379,7 +311,6 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
-
   try {
     await command.execute(interaction);
   } catch (error) {
@@ -395,83 +326,46 @@ client.on('interactionCreate', async (interaction) => {
    💬  Message Handler
    ═══════════════════════════════════════════ */
 
-// AFK prefix: !afk, ?afk, .afk
 const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  /* ── DM Handler for Werewolf Night Actions ── */
+  /* ── DM Handler for Mafia Night Actions ── */
   if (!message.guild) {
     const msgContent = message.content.toLowerCase().trim();
     if (msgContent.startsWith('w.')) {
       const args = message.content.trim().split(/\s+/);
       const cmd = args[0].toLowerCase();
 
-      if (cmd === 'w.kill' || cmd === 'w.save' || cmd === 'w.check') {
+      if (cmd === 'w.nightkill' || cmd === 'w.nk' || cmd === 'w.save' || cmd === 'w.check') {
         let foundGame = null;
         for (const [, g] of activeGames) {
-          if (g.players.has(message.author.id) && g.state !== GAME_STATE.ENDED) {
+          if (g.players.has(message.author.id) && g.state !== GAME_STATE.ENDED && g.mode === GAME_MODE.MAFIA) {
             foundGame = g;
             break;
           }
         }
-        if (!foundGame) {
-          return message.reply('🚫 You are not in any active game!');
-        }
-        if (foundGame.state !== GAME_STATE.NIGHT) {
-          return message.reply('🌙 Night actions can only be used during the night!');
-        }
+        if (!foundGame) return message.reply('🚫 You are not in any active Mafia game!');
+        if (foundGame.state !== GAME_STATE.NIGHT) return message.reply('🌙 Night actions only during the night!');
         const targetNum = parseInt(args[1]);
-        if (isNaN(targetNum)) {
-          return message.reply(`❌ Use \`${cmd} <number>\` — Example: \`${cmd} 3\``);
-        }
+        if (isNaN(targetNum)) return message.reply(`❌ Use \`${cmd} <number>\` — Example: \`${cmd} 3\``);
 
         let result;
-        if (cmd === 'w.kill') result = foundGame.wolfKill(message.author.id, targetNum);
+        if (cmd === 'w.nightkill' || cmd === 'w.nk') result = foundGame.wolfKill(message.author.id, targetNum);
         else if (cmd === 'w.save') result = foundGame.doctorSave(message.author.id, targetNum);
         else if (cmd === 'w.check') result = foundGame.seerCheck(message.author.id, targetNum);
 
         if (result) {
           await message.reply(result.message);
-          // Try auto-resolving night if all actions done
-          if (result.success) {
-            await tryAutoResolveNight(foundGame);
-          }
+          if (result.success) await tryAutoResolveMafiaNight(foundGame);
         }
-      } else if (cmd === 'w.role') {
-        // Check your role via DM
-        let foundGame = null;
-        for (const [, g] of activeGames) {
-          if (g.players.has(message.author.id) && g.state !== GAME_STATE.ENDED) {
-            foundGame = g;
-            break;
-          }
-        }
-        if (!foundGame) {
-          return message.reply('🚫 You are not in any active game!');
-        }
-        const player = foundGame.getPlayer(message.author.id);
-        if (!player) return message.reply('🚫 You are not in this game!');
-        if (!player.role) return message.reply('⚠️ Game hasn\'t started yet — no role assigned!');
-
-        const roleColor = ROLE_COLORS[player.role] || 0xFF69B4;
-        const roleEmbed = new EmbedBuilder()
-          .setColor(roleColor)
-          .setTitle(`🎭 Your Role: ${player.role}`)
-          .setDescription(
-            `━━━━━━━━━━━━━━━━━━━\n┣ 👤 **Player:** ${player.user.username}\n┣ 🎭 **Role:** ${player.role}\n┣ ${player.alive ? '✅ **Status:** Alive' : '💀 **Status:** Dead'}\n┣ 🌙 **Round:** ${foundGame.round}\n┗ ${foundGame.state === GAME_STATE.NIGHT ? '🌙 **Phase:** Night' : '☀️ **Phase:** Day'}`
-          )
-          .setFooter({ text: '🤫 Keep your role secret!' })
-          .setTimestamp();
-        return message.reply({ embeds: [roleEmbed] });
       } else if (cmd === 'w.help') {
         return message.reply(
-          '🐺 **Werewolf DM Commands:**\n' +
-          '`w.kill <#>` — Wolf: choose victim\n' +
+          '🐺 **Mafia DM Commands:**\n' +
+          '`w.nightkill <#>` / `w.nk <#>` — Mafia: choose victim\n' +
           '`w.save <#>` — Doctor: protect someone\n' +
-          '`w.check <#>` — Seer: investigate someone\n' +
-          '`w.role` — Check your role & status'
+          '`w.check <#>` — Cop: investigate someone'
         );
       }
     }
@@ -480,7 +374,10 @@ client.on('messageCreate', async (message) => {
 
   const msgContent = message.content.toLowerCase().trim();
 
-  /* ── Werewolf Game Commands ── */
+  /* ═══════════════════════════════════════════
+     🐺 Werewolf Game Commands — Wolfia Style
+     ═══════════════════════════════════════════ */
+
   if (msgContent.startsWith('w.')) {
     const args = message.content.trim().split(/\s+/);
     const cmd = args[0].toLowerCase();
@@ -490,27 +387,21 @@ client.on('messageCreate', async (message) => {
       const helpEmbed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('🐺 Werewolf — Wolfia Style')
-        .setDescription(
-          'A game of deception with full Night/Day cycle!\n' +
-          '🌙 **Night:** Wolves kill, Doctor saves, Seer investigates\n' +
-          '☀️ **Day:** Discuss and vote to eliminate suspects'
-        )
+        .setDescription('Social deduction game with two modes!')
         .addFields(
-          { name: '🎮 Commands', value: '`w.join` — Join the game\n`w.start` — Start (HOST only)\n`w.shoot <#>` — Vote (day)\n`w.kill <#>` — Wolf kill (DM)\n`w.save <#>` — Doctor save (DM)\n`w.check <#>` — Seer check (DM)\n`w.role` — Check your role (DM)\n`w.players` — See alive players\n`w.end` — End game (HOST only)', inline: false },
-          { name: '🏘️ Villager', value: 'Vote during the day\nto eliminate wolves!', inline: true },
-          { name: '🐺 Wolf', value: 'Kill at night!\nDM: `w.kill <#>`', inline: true },
-          { name: '💊 Doctor', value: 'Save at night!\nDM: `w.save <#>`', inline: true },
-          { name: '🔮 Seer', value: 'Check at night!\nDM: `w.check <#>`', inline: true },
-          { name: '🏆 Win Conditions', value: '🏘️ **Villagers win** = all wolves dead\n🐺 **Wolves win** = wolves >= villagers', inline: false },
-          { name: '⏰ Timers', value: `Night: ${NIGHT_TIMER}s • Day: ${DAY_TIMER}s\nAuto-resolves when all actions done!`, inline: false },
+          { name: '🎮 Starting', value: '`w.in` — Sign up for game\n`w.out` — Drop from sign up\n`w.setup [setting] [value]` — Configure\n`w.start` — Start game (host only)\n`w.status` — Current game status', inline: false },
+          { name: '🍿 Popcorn Mode', value: 'Gun mechanic! Shoot to eliminate.\n`w.shoot <number>` — Shoot someone\n🔫 Shoot opposite team = target dies\n🔫 Shoot same team = YOU die, gun passes', inline: false },
+          { name: '🕵️ Mafia Mode', value: 'Classic night/day cycle.\n`w.vote <number>` — Vote to lynch\n`w.unvote` — Remove your vote\n`w.votecount` — See current votes\n`w.nk <number>` — Mafia kill (DM)\n`w.save <number>` — Doctor save (DM)\n`w.check <number>` — Cop check (DM)', inline: false },
+          { name: '⚙️ Setup', value: '`w.setup mode popcorn` — Popcorn mode\n`w.setup mode mafia` — Mafia mode\n`w.setup daylength <mins>` — Day length', inline: false },
+          { name: '🏆 Win Conditions', value: '🏘️ Village wins = all wolves dead\n🐺 Wolves win = wolves >= villagers', inline: false },
         )
         .setFooter({ text: '💕 Sweetheart Bot — Werewolf' })
         .setTimestamp();
       return message.reply({ embeds: [helpEmbed] });
     }
 
-    /* ── w.join ── */
-    if (cmd === 'w.join') {
+    /* ── w.in ── */
+    if (cmd === 'w.in') {
       let game = activeGames.get(message.channel.id);
       if (!game || game.state === GAME_STATE.ENDED) {
         game = new WerewolfGame(message.guild.id, message.channel.id, message.author.id);
@@ -519,140 +410,348 @@ client.on('messageCreate', async (message) => {
       }
       const result = game.join(message.author);
       const isHost = game.hostId === message.author.id;
-
       const embed = new EmbedBuilder()
         .setColor(result.success ? 0x2ECC71 : 0xE74C3C)
-        .setTitle('🐺 Werewolf Game')
+        .setTitle('🐺 Werewolf Sign Up')
         .setDescription(
           result.success
-            ? `${result.message}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🎮 Use \`w.join\` to join\n┣ 👑 Host starts with \`w.start\`\n┗ 📋 Min 4 players to start${isHost ? '\n\n👑 **You are the HOST!** Use `w.start` when ready.' : ''}`
+            ? `${result.message}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🎮 Use \`w.in\` to sign up\n┣ ${game.mode === GAME_MODE.POPCORN ? '🍿' : '🕵️'} Mode: **${game.mode === GAME_MODE.POPCORN ? 'Popcorn' : 'Mafia'}**\n┗ 👑 Host starts with \`w.start\`${isHost ? '\n\n👑 **You are the HOST!**' : ''}`
             : result.message
         )
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }
 
+    /* ── w.out ── */
+    if (cmd === 'w.out') {
+      const game = activeGames.get(message.channel.id);
+      if (!game) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel!').setTimestamp()] });
+      }
+      // Allow host to out other players, or players to out themselves
+      const targetUser = message.mentions.users.first() || message.author;
+      const isHost = message.author.id === game.hostId;
+      if (targetUser.id !== message.author.id && !isHost) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the host can remove other players!').setTimestamp()] });
+      }
+      const result = game.leave(targetUser.id);
+      // If host left and still in waiting, transfer host
+      if (targetUser.id === game.hostId && game.state === GAME_STATE.WAITING && game.players.size > 0) {
+        game.hostId = game.players.keys().next().value;
+      }
+      const embed = new EmbedBuilder()
+        .setColor(result.success ? 0x2ECC71 : 0xE74C3C)
+        .setDescription(result.message)
+        .setTimestamp();
+      return message.reply({ embeds: [embed] });
+    }
+
+    /* ── w.setup ── */
+    if (cmd === 'w.setup') {
+      let game = activeGames.get(message.channel.id);
+      if (!game) {
+        game = new WerewolfGame(message.guild.id, message.channel.id, message.author.id);
+        game.channel = message.channel;
+        activeGames.set(message.channel.id, game);
+      }
+      if (message.author.id !== game.hostId) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the host can change settings!').setTimestamp()] });
+      }
+
+      const setting = args[1]?.toLowerCase();
+      const value = args[2]?.toLowerCase();
+
+      if (!setting) {
+        // Show current setup
+        const setupEmbed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setTitle('⚙️ Game Setup')
+          .setDescription(
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `┣ 🎮 **Mode:** ${game.mode === GAME_MODE.POPCORN ? '🍿 Popcorn' : '🕵️ Mafia'}\n` +
+            `┣ ⏰ **Day Length:** ${game.dayLength} minutes\n` +
+            `┣ 👥 **Signed Up:** ${game.players.size} players\n` +
+            `┣ 🏷️ **Status:** ${game.state === GAME_STATE.WAITING ? '⏳ Waiting' : '🎮 In Progress'}\n` +
+            `┗ 👑 **Host:** <@${game.hostId}>`
+          )
+          .addFields({
+            name: '📝 Commands',
+            value: '`w.setup mode popcorn` — Popcorn mode (gun)\n`w.setup mode mafia` — Mafia mode (night/day)\n`w.setup daylength <1-30>` — Day timer',
+            inline: false,
+          })
+          .setTimestamp();
+        return message.reply({ embeds: [setupEmbed] });
+      }
+
+      let result;
+      if (setting === 'mode') {
+        result = game.setMode(value);
+      } else if (setting === 'daylength') {
+        result = game.setDayLength(value);
+      } else {
+        result = { success: false, message: '🚫 Unknown setting! Use `mode` or `daylength`' };
+      }
+
+      return message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] });
+    }
+
     /* ── w.start ── */
     if (cmd === 'w.start') {
       let game = activeGames.get(message.channel.id);
       if (!game) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🐺 No Game').setDescription('No game in this channel! Use `w.join` first.').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel! Use `w.in` first.').setTimestamp()] });
       }
       if (message.author.id !== game.hostId) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🚫 Not the Host').setDescription('Only the **host** can start the game!\nAsk the person who created the game to run `w.start`.').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the **host** can start the game!').setTimestamp()] });
       }
       if (game.started) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Game already started!').setTimestamp()] });
       }
       const result = game.start();
       if (!result.success) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🐺 Cannot Start').setDescription(result.message).setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
       }
 
       const playerList = game.getAlivePlayersCompact();
-      const startEmbed = new EmbedBuilder()
-        .setColor(0xFF69B4)
-        .setTitle('🐺 Werewolf Game Started!')
-        .setDescription(
-          `**${game.players.size} players** — **${result.wolfCount}** wolf/wolves among you!\n\n${playerList}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🌙 **Night 1 begins now...**\n┣ 🤫 Check your DMs for your role!\n┗ ⏰ Night actions: ${NIGHT_TIMER}s`
-        )
-        .setFooter({ text: '🐺 Deception begins!' })
-        .setTimestamp();
-      await message.reply({ embeds: [startEmbed] });
 
-      // DM each player their role + instructions
+      if (result.mode === GAME_MODE.POPCORN) {
+        // Popcorn: DM roles, announce start
+        const gunHolder = game.players.get(game.gunHolder);
+        const startEmbed = new EmbedBuilder()
+          .setColor(0xFF69B4)
+          .setTitle('🍿 Popcorn Game Started!')
+          .setDescription(
+            `**${game.players.size} players** — **${result.wolfCount}** wolves among you!\n\n${playerList}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🔫 **${gunHolder.user.username}** has the GUN!\n┣ 💥 Use \`w.shoot <number>\` to shoot\n┣ 🎯 Hit opposite team = target dies\n┗ 💀 Hit same team = YOU die, gun passes\n\n🤫 Check your DMs for your role!`
+          )
+          .setFooter({ text: '🍿 Popcorn Mode — Shoot wisely!' })
+          .setTimestamp();
+        await message.reply({ embeds: [startEmbed] });
+      } else {
+        // Mafia: DM roles, start night
+        const startEmbed = new EmbedBuilder()
+          .setColor(0xFF69B4)
+          .setTitle('🕵️ Mafia Game Started!')
+          .setDescription(
+            `**${game.players.size} players** — **${result.wolfCount}** mafia among you!\n\n${playerList}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🌙 **Night 1 begins now...**\n┣ 🤫 Check your DMs for your role!\n┗ ⏰ Night actions: ${NIGHT_TIMER}s`
+          )
+          .setFooter({ text: '🕵️ Mafia Mode — Deception begins!' })
+          .setTimestamp();
+        await message.reply({ embeds: [startEmbed] });
+      }
+
+      // DM each player their role
       for (const [id, player] of game.players) {
         try {
           let roleMsg = '';
           if (player.role === ROLE.WOLF) {
             const otherWolves = game.getAliveWolves().filter(w => w.user.id !== id);
-            const wolfNames = otherWolves.length > 0
-              ? otherWolves.map(w => `┣ 🐺 **${w.user.username}** (#${w.number})`).join('\n') + '\n┗'
-              : '┗ 🐺 You are the only wolf!';
-            roleMsg = `You are a **WOLF**! 🐺\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🩸 Choose a villager to kill each night\n┣ 📨 DM me: \`w.kill <number>\`\n┣ 🤫 Don't reveal yourself!\n${wolfNames}`;
+            if (game.mode === GAME_MODE.POPCORN) {
+              const hasGun = game.gunHolder === id;
+              roleMsg = `🐺 You are a **WOLF**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🤫 Keep your identity secret\n┣ 🐺 Find and eliminate villagers\n${otherWolves.length > 0 ? `┣ 🐺 Your wolf teammates:\n${otherWolves.map(w => `┃   **${w.number}.** ${w.user.username}`).join('\n')}\n┗` : '┗ 🐺 You are the only wolf!'}${hasGun ? '\n\n🔫 **YOU HAVE THE GUN!** Use `w.shoot <number>` to shoot!' : ''}`;
+            } else {
+              roleMsg = `🐺 You are **MAFIA**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🩸 Kill at night with \`w.nk <number>\`\n┣ 🤫 Keep your identity secret\n${otherWolves.length > 0 ? `┣ 🐺 Your mafia teammates:\n${otherWolves.map(w => `┃   **${w.number}.** ${w.user.username}`).join('\n')}\n┗` : '┗ 🐺 You are the only mafia!'}\n\nUse \`w.nightkill <number>\` or \`w.nk <number>\` in DM at night.`;
+            }
           } else if (player.role === ROLE.DOCTOR) {
             const aliveList = game.getAlivePlayersCompact();
-            roleMsg = `You are the **DOCTOR**! 💊\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🛡️ Choose one person to save each night\n┣ 📨 DM me: \`w.save <number>\`\n┣ ⚠️ Can't save same person two nights in a row!\n┗ 💉 Keep the village alive!\n\nAlive players:\n${aliveList}`;
+            roleMsg = `💊 You are the **DOCTOR**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🛡️ Save one person each night\n┣ 📨 DM: \`w.save <number>\`\n┣ ⚠️ Can't save same person 2 nights in a row\n┗ 💉 Keep the town alive!\n\nAlive players:\n${aliveList}`;
           } else if (player.role === ROLE.SEER) {
             const checkList = game.getAlivePlayers().filter(p => p.user.id !== id).map(p => `**${p.number}.** ${p.user.username}`).join('\n');
-            roleMsg = `You are the **SEER**! 🔮\n\n━━━━━━━━━━━━━━━━━━━\n┣ 👁️ Choose one person to investigate each night\n┣ 📨 DM me: \`w.check <number>\`\n┣ 🔍 You will learn if they are a wolf!\n┗ 🧠 Use your knowledge wisely!\n\nOther alive players:\n${checkList}`;
+            if (game.mode === GAME_MODE.POPCORN) {
+              roleMsg = `🔮 You are the **SEER**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 👁️ Your instinct tells you who is suspicious\n┣ 🤫 Keep your identity secret\n┗ 💡 Share info carefully — wolves may target you!`;
+            } else {
+              roleMsg = `🔮 You are the **COP**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 👁️ Investigate one player each night\n┣ 📨 DM: \`w.check <number>\`\n┗ 🧠 Use your knowledge wisely!\n\nOther alive players:\n${checkList}`;
+            }
           } else {
-            roleMsg = `You are a **VILLAGER**! 🏘️\n\n━━━━━━━━━━━━━━━━━━━\n┣ 💪 Survive and find the wolves!\n┣ 🗳️ During the day: \`w.shoot <number>\`\n┗ 😴 Sleep peacefully at night...`;
+            if (game.mode === GAME_MODE.POPCORN) {
+              roleMsg = `🏘️ You are a **VILLAGER**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 💪 Survive and find the wolves\n┣ 🤔 Pay attention to who shoots who\n┗ 🎯 Help identify the wolves!`;
+            } else {
+              roleMsg = `🏘️ You are a **VILLAGER**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 💪 Survive and find the mafia\n┣ 🗳️ Vote during the day: \`w.vote <number>\`\n┗ 😴 Sleep at night...`;
+            }
           }
-          const dmEmbed = new EmbedBuilder()
-            .setColor(ROLE_COLORS[player.role] || 0xFF69B4)
-            .setTitle('🎭 Your Secret Role')
-            .setDescription(roleMsg)
-            .setFooter({ text: "🤫 Don't share your role with others!" })
-            .setTimestamp();
-          await player.user.send({ embeds: [dmEmbed] });
+          await player.user.send({
+            embeds: [new EmbedBuilder()
+              .setColor(ROLE_COLORS[player.role] || 0xFF69B4)
+              .setTitle(`🎭 Your Secret Role — ${ROLE_EMOJI[player.role]} ${player.role}`)
+              .setDescription(roleMsg)
+              .setFooter({ text: "🤫 Don't share your role!" })
+              .setTimestamp()]
+          });
         } catch (err) {
           console.error(`Could not DM ${player.user.username}:`, err.message);
-          await message.channel.send(`⚠️ Could not DM <@${id}> — tell them to enable DMs from server members!`);
+          await message.channel.send(`⚠️ Could not DM <@${id}> — tell them to enable DMs!`);
         }
       }
 
-      // Start Night 1
-      await startNightPhase(game);
+      // If Mafia mode, start night phase
+      if (result.mode === GAME_MODE.MAFIA) {
+        await startMafiaNight(game);
+      }
       return;
     }
 
-    /* ── w.shoot ── */
-    if (cmd === 'w.shoot') {
+    /* ── w.shoot (Popcorn mode) ── */
+    if (cmd === 'w.shoot' || cmd === 'w.s') {
       const game = activeGames.get(message.channel.id);
       if (!game || game.state === GAME_STATE.ENDED) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active game! Use `w.join` then `w.start`').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active game! Use `w.in` then `w.start`').setTimestamp()] });
+      }
+      if (game.mode !== GAME_MODE.POPCORN) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 `w.shoot` is for Popcorn mode only! Use `w.vote` in Mafia.').setTimestamp()] });
+      }
+      const targetNum = parseInt(args[1]);
+      if (isNaN(targetNum)) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🔫 Use `w.shoot <number>` — Example: `w.shoot 3`').setTimestamp()] });
+      }
+      const result = game.shoot(message.author.id, targetNum);
+      if (!result.success) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+      }
+
+      // Shoot result embed
+      const shootEmbed = new EmbedBuilder()
+        .setColor(result.shooterDies ? 0xE74C3C : 0xFFD700)
+        .setTitle(result.shooterDies ? '💀 MISFIRE!' : '💥 HIT!')
+        .setDescription(result.message)
+        .setTimestamp();
+      await message.reply({ embeds: [shootEmbed] });
+
+      // Check win
+      const winCheck = game.checkWin();
+      if (winCheck) {
+        const gunHolder = game.players.get(game.gunHolder);
+        const winEmbed = new EmbedBuilder()
+          .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
+          .setTitle(winCheck.winner === 'wolves' ? '🐺 Wolves Win!' : '🏘️ Village Wins!')
+          .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
+          .setFooter({ text: '🍿 Game Over — Thanks for playing!' })
+          .setTimestamp();
+        await message.channel.send({ embeds: [winEmbed] });
+        activeGames.delete(message.channel.id);
+      } else {
+        // Announce new gun holder
+        const gunHolder = game.players.get(game.gunHolder);
+        if (gunHolder && !result.shooterDies) {
+          // Shooter still has gun (they hit opposite team)
+        } else if (gunHolder) {
+          const gunEmbed = new EmbedBuilder()
+            .setColor(0xFFD700)
+            .setTitle('🔫 New Gun Holder!')
+            .setDescription(`The gun passes to **${gunHolder.user.username}**!\n\nUse \`w.shoot <number>\` to shoot!`)
+            .setTimestamp();
+          await message.channel.send({ embeds: [gunEmbed] });
+        }
+      }
+      return;
+    }
+
+    /* ── w.vote (Mafia mode) ── */
+    if (cmd === 'w.vote' || cmd === 'w.v') {
+      const game = activeGames.get(message.channel.id);
+      if (!game || game.state === GAME_STATE.ENDED) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active game!').setTimestamp()] });
+      }
+      if (game.mode !== GAME_MODE.MAFIA) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 `w.vote` is for Mafia mode only! Use `w.shoot` in Popcorn.').setTimestamp()] });
       }
       if (game.state !== GAME_STATE.DAY) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🌙 You can only vote during the day!').setTimestamp()] });
       }
       const targetNum = parseInt(args[1]);
       if (isNaN(targetNum)) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🗳️ Use `w.shoot <number>` — Example: `w.shoot 3`').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🗳️ Use `w.vote <number>` — Example: `w.vote 3`').setTimestamp()] });
       }
       const target = game.getPlayerByNumber(targetNum);
       if (!target) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`🚫 Player #${targetNum} not found or already dead!`).setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`🚫 Player #${targetNum} not found or dead!`).setTimestamp()] });
       }
       const result = game.vote(message.author.id, target.user.id);
       if (result.success) {
         const voteCount = game.votes.size;
         const aliveCount = game.getAlivePlayers().length;
-        const embed = new EmbedBuilder()
-          .setColor(0xFFD700)
-          .setTitle('🗳️ Vote Cast!')
-          .setDescription(
-            `${result.message}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📊 **${voteCount}/${aliveCount}** votes cast\n┗ ${voteCount >= aliveCount ? '✅ All votes in — tallying!' : '⏳ Waiting for more votes...'}`
-          )
-          .setTimestamp();
-        await message.reply({ embeds: [embed] });
-
-        // If all alive players voted, tally immediately
-        if (voteCount >= aliveCount) {
-          await resolveDayVote(game);
-        }
+        await message.reply({ embeds: [new EmbedBuilder().setColor(0xFFD700).setDescription(`${result.message}\n📊 **${voteCount}/${aliveCount}** votes cast`).setTimestamp()] });
+        if (voteCount >= aliveCount) await resolveMafiaVote(game);
       } else {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+        await message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
       }
       return;
+    }
+
+    /* ── w.unvote ── */
+    if (cmd === 'w.unvote' || cmd === 'w.u') {
+      const game = activeGames.get(message.channel.id);
+      if (!game || game.mode !== GAME_MODE.MAFIA) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active Mafia game!').setTimestamp()] });
+      }
+      const result = game.unvote(message.author.id);
+      return message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] });
+    }
+
+    /* ── w.votecount ── */
+    if (cmd === 'w.votecount' || cmd === 'w.vc') {
+      const game = activeGames.get(message.channel.id);
+      if (!game || game.mode !== GAME_MODE.MAFIA) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active Mafia game!').setTimestamp()] });
+      }
+      const vc = game.getVoteCountString();
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFFD700).setTitle('🗳️ Vote Count').setDescription(vc).setTimestamp()] });
+    }
+
+    /* ── w.status ── */
+    if (cmd === 'w.status' || cmd === 'w.st') {
+      const game = activeGames.get(message.channel.id);
+      if (!game) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel! Use `w.in` to sign up.').setTimestamp()] });
+      }
+      const modeIcon = game.mode === GAME_MODE.POPCORN ? '🍿' : '🕵️';
+      const phaseIcon = game.state === GAME_STATE.NIGHT ? '🌙' : game.state === GAME_STATE.DAY ? '☀️' : '⏳';
+
+      let statusDesc = `━━━━━━━━━━━━━━━━━━━\n`;
+      statusDesc += `┣ ${modeIcon} **Mode:** ${game.mode === GAME_MODE.POPCORN ? 'Popcorn' : 'Mafia'}\n`;
+      statusDesc += `┣ ${phaseIcon} **Phase:** ${game.state === GAME_STATE.WAITING ? 'Waiting' : game.state === GAME_STATE.NIGHT ? `Night ${game.round}` : game.state === GAME_STATE.DAY ? `Day ${game.round}` : 'Ended'}\n`;
+      statusDesc += `┣ 👥 **Players:** ${game.getAlivePlayers().length} alive / ${game.players.size} total\n`;
+
+      if (game.mode === GAME_MODE.POPCORN && game.started) {
+        const gunHolder = game.players.get(game.gunHolder);
+        if (gunHolder) statusDesc += `┣ 🔫 **Gun:** ${gunHolder.user.username}\n`;
+      }
+      if (game.mode === GAME_MODE.MAFIA && game.state === GAME_STATE.DAY) {
+        statusDesc += `┣ 🗳️ **Votes:** ${game.votes.size}/${game.getAlivePlayers().length}\n`;
+      }
+      statusDesc += `┗ 👑 **Host:** <@${game.hostId}>`;
+
+      const aliveList = game.getPlayerListString();
+      const deadList = game.getDeadListString();
+
+      const statusEmbed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle('🐺 Game Status')
+        .setDescription(statusDesc);
+      if (game.started) {
+        statusEmbed.addFields({ name: `✅ Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false });
+        if (deadList) statusEmbed.addFields({ name: '💀 Eliminated', value: deadList, inline: false });
+      } else {
+        statusEmbed.addFields({ name: `📝 Signed Up (${game.players.size})`, value: game.getPlayerListString() || 'None', inline: false });
+      }
+      statusEmbed.setTimestamp();
+      return message.reply({ embeds: [statusEmbed] });
     }
 
     /* ── w.players ── */
     if (cmd === 'w.players') {
       const game = activeGames.get(message.channel.id);
       if (!game) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel! Use `w.join` first.').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel!').setTimestamp()] });
       }
       const aliveList = game.getPlayerListString();
       const deadList = game.getDeadListString();
-      const phaseIcon = game.state === GAME_STATE.NIGHT ? '🌙' : game.state === GAME_STATE.DAY ? '☀️' : '⏳';
-
-      const embed = new EmbedBuilder()
-        .setColor(0xFF69B4)
-        .setTitle(`🐺 Players — ${phaseIcon} ${game.state === GAME_STATE.NIGHT ? `Night ${game.round}` : game.state === GAME_STATE.DAY ? `Day ${game.round}` : 'Waiting'}`)
-        .addFields({ name: `✅ Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false });
-      if (deadList) embed.addFields({ name: '💀 Eliminated', value: deadList, inline: false });
-      embed.setFooter({ text: `👑 Host: <@${game.hostId}>` }).setTimestamp();
+      const embed = new EmbedBuilder().setColor(0xFF69B4).setTitle('🐺 Players');
+      if (game.started) {
+        embed.addFields({ name: `✅ Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false });
+        if (deadList) embed.addFields({ name: '💀 Eliminated', value: deadList, inline: false });
+      } else {
+        embed.addFields({ name: `📝 Signed Up (${game.players.size})`, value: aliveList || 'None', inline: false });
+      }
+      embed.setTimestamp();
       return message.reply({ embeds: [embed] });
     }
 
@@ -663,7 +762,7 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game to end!').setTimestamp()] });
       }
       if (message.author.id !== game.hostId) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🚫 Not the Host').setDescription('Only the **host** can end the game!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the **host** can end the game!').setTimestamp()] });
       }
       game.end();
       const playerList = game.getFullPlayerListString();
@@ -671,62 +770,45 @@ client.on('messageCreate', async (message) => {
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('🐺 Game Ended!')
-        .setDescription(
-          `The game was ended by the host.\n\n${playerList}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🏁 Use \`w.join\` to start a new game\n┗ 💕 Thanks for playing!`
-        )
+        .setDescription(`The game was ended by the host.\n\n${playerList}`)
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }
-  }
 
-  /* ── Handle night actions typed in channel (redirect to DM secretly) ── */
-  if (message.guild && (msgContent.startsWith('w.kill ') || msgContent.startsWith('w.save ') || msgContent.startsWith('w.check '))) {
-    const args = message.content.trim().split(/\s+/);
-    const cmd = args[0].toLowerCase();
-    const game = activeGames.get(message.channel.id);
-
-    if (!game || game.state === GAME_STATE.ENDED) {
-      return message.reply('🚫 No active game in this channel!');
-    }
-    if (game.state !== GAME_STATE.NIGHT) {
-      return message.reply('🌙 Night actions can only be used during the night!');
-    }
-
-    const targetNum = parseInt(args[1]);
-    if (isNaN(targetNum)) {
-      return message.reply(`❌ Use \`${cmd} <number>\` — Example: \`${cmd} 3\``);
-    }
-
-    let result;
-    if (cmd === 'w.kill') result = game.wolfKill(message.author.id, targetNum);
-    else if (cmd === 'w.save') result = game.doctorSave(message.author.id, targetNum);
-    else if (cmd === 'w.check') result = game.seerCheck(message.author.id, targetNum);
-
-    if (result) {
-      // Reply via DM to keep it secret
-      try {
-        await message.author.send(result.message);
-        // Delete the user's message in channel to keep it secret
-        try { await message.delete(); } catch (e) { /* can't delete */ }
-      } catch (e) {
-        // Can't DM — reply in channel but auto-delete after 5s
-        await message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] }).then(m => {
-          setTimeout(() => m.delete().catch(() => {}), 5000);
-        });
+    /* ── Handle w.nightkill/w.nk/w.save/w.check typed in channel (Mafia mode) ── */
+    if (msgContent.startsWith('w.nightkill ') || msgContent.startsWith('w.nk ') || msgContent.startsWith('w.save ') || msgContent.startsWith('w.check ')) {
+      const game = activeGames.get(message.channel.id);
+      if (!game || game.state === GAME_STATE.ENDED || game.mode !== GAME_MODE.MAFIA) return;
+      if (game.state !== GAME_STATE.NIGHT) {
+        return message.reply('🌙 Night actions only during the night!');
       }
+      const targetNum = parseInt(args[1]);
+      if (isNaN(targetNum)) return message.reply(`❌ Use \`${cmd} <number>\``);
 
-      // Try auto-resolving night if all actions done
-      if (result.success) {
-        await tryAutoResolveNight(game);
+      let result;
+      if (cmd === 'w.nightkill' || cmd === 'w.nk') result = game.wolfKill(message.author.id, targetNum);
+      else if (cmd === 'w.save') result = game.doctorSave(message.author.id, targetNum);
+      else if (cmd === 'w.check') result = game.seerCheck(message.author.id, targetNum);
+
+      if (result) {
+        try {
+          await message.author.send(result.message);
+          try { await message.delete(); } catch (e) { /* can't delete */ }
+        } catch (e) {
+          await message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] }).then(m => {
+            setTimeout(() => m.delete().catch(() => {}), 5000);
+          });
+        }
+        if (result.success) await tryAutoResolveMafiaNight(game);
       }
+      return;
     }
-    return;
   }
 
   const username = message.member?.displayName || message.author.username;
   const content = message.content.toLowerCase().trim();
 
-  /* ── 0. Prefix AFK Command: !afk, ?afk, .afk ── */
+  /* ── AFK Prefix Commands ── */
   const matchedPrefix = AFK_PREFIXES.find(p => content.startsWith(p));
   if (matchedPrefix) {
     const args = message.content.slice(matchedPrefix.length).trim();
@@ -755,26 +837,18 @@ client.on('messageCreate', async (message) => {
 
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
-      .setAuthor({
-        name: `${username} is now ${isBreak ? 'on a break' : 'AFK'}`,
-        iconURL: message.author.displayAvatarURL({ dynamic: true }),
-      })
+      .setAuthor({ name: `${username} is now ${isBreak ? 'on a break' : 'AFK'}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
       .setTitle(isBreak ? '☕ Break Time!' : '🌙 AFK Mode Activated')
       .setDescription(styledDesc)
       .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 256 }))
       .setFooter({ text: `💕 I'll be waiting for you, ${message.author.username}…` })
       .setTimestamp();
 
-    // Add AFK role + Set [AFK] nickname
     const isOwner = message.guild.ownerId === message.author.id;
     const afkRole = await getAfkRole(message.guild);
-    if (afkRole && message.member) {
-      if (!message.member.roles.cache.has(afkRole.id)) {
-        try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { console.error('Could not add AFK role:', e.message); }
-      }
+    if (afkRole && message.member && !message.member.roles.cache.has(afkRole.id)) {
+      try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { console.error('Could not add AFK role:', e.message); }
     }
-
-    // Skip nickname for server owner — Discord doesn't allow it
     if (message.member && !isOwner) {
       try {
         const afkNick = getAfkNickname(message.member.nickname, message.author.username);
@@ -785,7 +859,7 @@ client.on('messageCreate', async (message) => {
     return message.reply({ embeds: [embed] }).catch(console.error);
   }
 
-  /* ── 1. Returning from AFK ── */
+  /* ── AFK Return ── */
   try {
     const { data: afkData, error: dbError } = await supabase
       .from('afk_users')
@@ -794,68 +868,46 @@ client.on('messageCreate', async (message) => {
       .eq('guild_id', message.guild.id)
       .maybeSingle();
 
-    if (dbError) {
-      console.error('Supabase query error (AFK return check):', dbError);
-      return;
-    }
+    if (dbError) { console.error('Supabase query error:', dbError); return; }
 
     if (afkData) {
       const away = timeSince(afkData.afk_time);
-
       const returnDesc = `Welcome back <@${message.author.id}>!\nI have removed your AFK status.\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``;
 
       const embed = new EmbedBuilder()
         .setColor(0xFF1493)
-        .setAuthor({
-          name: `${username} is back!`,
-          iconURL: message.author.displayAvatarURL({ dynamic: true }),
-        })
+        .setAuthor({ name: `${username} is back!`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
         .setTitle('💝 Welcome Back!')
         .setDescription(returnDesc)
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setFooter({ text: "💫 So glad you're back!" })
         .setTimestamp();
-
       await message.reply({ embeds: [embed] }).catch(console.error);
 
-      // Remove AFK role + nickname
       const isReturnOwner = message.guild.ownerId === message.author.id;
       const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
       if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id)) {
         try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
       }
-
-      // Skip nickname for server owner — Discord doesn't allow it
       if (message.member && !isReturnOwner) {
         try {
           const normalNick = getNormalNickname(message.member.nickname, message.author.username);
           await message.member.setNickname(normalNick, 'User returned from AFK');
         } catch (e) { console.error('Could not remove AFK nickname:', e.message); }
       }
-
-      // Remove AFK record
-      await supabase
-        .from('afk_users')
-        .delete()
-        .eq('user_id', message.author.id)
-        .eq('guild_id', message.guild.id);
+      await supabase.from('afk_users').delete().eq('user_id', message.author.id).eq('guild_id', message.guild.id);
     }
-  } catch (err) {
-    console.error('Error in AFK return handler:', err);
-  }
+  } catch (err) { console.error('Error in AFK return handler:', err); }
 
-  /* ── 2. Mentioned an AFK user ── */
+  /* ── AFK Mention ── */
   if (message.mentions.users.size > 0) {
     try {
       for (const [userId] of message.mentions.users) {
         if (userId === message.author.id) continue;
-
         const cooldownKey = `${message.author.id}-${userId}`;
         const now = Date.now();
         const lastNotified = mentionCooldowns.get(cooldownKey);
-        if (lastNotified && now - lastNotified < AFK_MENTION_COOLDOWN) {
-          continue;
-        }
+        if (lastNotified && now - lastNotified < AFK_MENTION_COOLDOWN) continue;
 
         const { data: mentionedAfk, error: dbError } = await supabase
           .from('afk_users')
@@ -864,39 +916,26 @@ client.on('messageCreate', async (message) => {
           .eq('guild_id', message.guild.id)
           .maybeSingle();
 
-        if (dbError) {
-          console.error('Supabase query error (AFK mention check):', dbError);
-          break;
-        }
-
+        if (dbError) { console.error('Supabase query error:', dbError); break; }
         if (mentionedAfk) {
           const away = timeSince(mentionedAfk.afk_time);
-
           const mentionDesc = `${pick(AFK_MENTION_MESSAGES)}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${mentionedAfk.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``;
-
           const embed = new EmbedBuilder()
             .setColor(0xE91E63)
-            .setAuthor({
-              name: `${mentionedAfk.username} is currently AFK`,
-              iconURL: mentionedAfk.avatar_url,
-            })
+            .setAuthor({ name: `${mentionedAfk.username} is currently AFK`, iconURL: mentionedAfk.avatar_url })
             .setTitle("🌙 They're Away Right Now")
             .setDescription(mentionDesc)
             .setThumbnail(mentionedAfk.avatar_url)
             .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon` })
             .setTimestamp();
-
           await message.reply({ embeds: [embed] }).catch(console.error);
           mentionCooldowns.set(cooldownKey, now);
           break;
         }
       }
-    } catch (err) {
-      console.error('Error in AFK mention handler:', err);
-    }
+    } catch (err) { console.error('Error in AFK mention handler:', err); }
   }
 
-  // Periodically clean up stale cooldowns
   if (mentionCooldowns.size > 1000) {
     const cutoff = Date.now() - AFK_MENTION_COOLDOWN;
     for (const [key, timestamp] of mentionCooldowns) {
@@ -911,15 +950,10 @@ client.on('messageCreate', async (message) => {
 
 client.on('messageDelete', (message) => {
   if (!message.guild || message.author?.bot) return;
-
   client.snipes.set(message.channel.id, {
-    content: message.content,
-    author: message.author,
-    timestamp: message.createdAt,
+    content: message.content, author: message.author, timestamp: message.createdAt,
     attachments: message.attachments ? [...message.attachments.values()] : [],
   });
-
-  // Auto-clean: only keep last 50 channels
   if (client.snipes.size > 50) {
     const firstKey = client.snipes.keys().next().value;
     client.snipes.delete(firstKey);
@@ -931,24 +965,14 @@ client.on('messageDelete', (message) => {
    ═══════════════════════════════════════════ */
 
 client.on('error', (error) => {
-  if (error.message && error.message.includes('disallowed intents')) {
-    console.error('');
-    console.error('════════════════════════════════════════════════════════');
-    console.error('❌ DISALLOWED INTENTS ERROR');
-    console.error('════════════════════════════════════════════════════════');
-    console.error('Your bot is requesting intents that are not enabled.');
-    console.error('Go to the Discord Developer Portal and enable them:');
-    console.error('  1. https://discord.com/developers/applications');
-    console.error('  2. Select your application → Bot → Privileged Gateway Intents');
-    console.error('════════════════════════════════════════════════════════');
+  if (error.message?.includes('disallowed intents')) {
+    console.error('❌ DISALLOWED INTENTS — Enable them in Discord Developer Portal!');
     process.exit(1);
   }
   console.error('Client error:', error);
 });
 
-client.on('warn', (warning) => {
-  console.warn('⚠️ Warning:', warning);
-});
+client.on('warn', (warning) => console.warn('⚠️ Warning:', warning));
 
 /* ═══════════════════════════════════════════
    🔑  Login
@@ -956,8 +980,5 @@ client.on('warn', (warning) => {
 
 client.login(process.env.DISCORD_TOKEN).catch((error) => {
   console.error('❌ Failed to login:', error.message);
-  if (error.message && error.message.includes('invalid token')) {
-    console.error('   Your DISCORD_TOKEN may be incorrect. Check your .env file.');
-  }
   process.exit(1);
 });
