@@ -65,6 +65,58 @@ ALTER TABLE wallets DISABLE ROW LEVEL SECURITY;
 ALTER TABLE server_pools DISABLE ROW LEVEL SECURITY;
 ALTER TABLE pool_donors DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mimic_access DISABLE ROW LEVEL SECURITY;
+
+-- ✅ Hand Cricket profiles table
+CREATE TABLE IF NOT EXISTS hc_profiles (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE,
+  username TEXT DEFAULT '',
+  games_played INT DEFAULT 0,
+  games_won INT DEFAULT 0,
+  total_runs INT DEFAULT 0,
+  total_wickets INT DEFAULT 0,
+  highest_score INT DEFAULT 0,
+  total_balls INT DEFAULT 0,
+  total_fours INT DEFAULT 0,
+  total_sixes INT DEFAULT 0,
+  win_streak INT DEFAULT 0,
+  best_win_streak INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE hc_profiles DISABLE ROW LEVEL SECURITY;
+
+-- ✅ Add win_streak columns if they don't exist (safe migration for existing tables)
+DO $$ BEGIN
+  ALTER TABLE hc_profiles ADD COLUMN IF NOT EXISTS win_streak INT DEFAULT 0;
+  ALTER TABLE hc_profiles ADD COLUMN IF NOT EXISTS best_win_streak INT DEFAULT 0;
+  ALTER TABLE hc_profiles ADD COLUMN IF NOT EXISTS total_fours INT DEFAULT 0;
+  ALTER TABLE hc_profiles ADD COLUMN IF NOT EXISTS total_sixes INT DEFAULT 0;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+
+-- ✅ AFK Break Access table
+CREATE TABLE IF NOT EXISTS afk_break_access (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  guild_id TEXT NOT NULL,
+  allowed_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, guild_id)
+);
+
+-- ✅ AFK Break Access Config table
+CREATE TABLE IF NOT EXISTS afk_break_access_config (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  guild_id TEXT NOT NULL UNIQUE,
+  enabled BOOLEAN DEFAULT false,
+  allowed_role_id TEXT DEFAULT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE afk_break_access DISABLE ROW LEVEL SECURITY;
+ALTER TABLE afk_break_access_config DISABLE ROW LEVEL SECURITY;
 `;
 
 async function runMigrations() {
