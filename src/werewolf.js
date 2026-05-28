@@ -536,6 +536,23 @@ class WerewolfGame {
     return this.getAlivePlayers().map(p => `**${p.number}.** ${p.user.username}`).join('\n');
   }
 
+  /** Wolfia-style living players with numbered tags */
+  getLivingPlayersTagged() {
+    return this.getAlivePlayers().map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+  }
+
+  /** Wolfia-style living wolves display (only visible after game) */
+  getLivingWolvesTagged() {
+    return this.getAliveWolves().map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+  }
+
+  /** Wolfia-style gun holder display */
+  getGunHolderDisplay() {
+    const holder = this.players.get(this.gunHolder);
+    if (!holder) return 'None';
+    return `**${holder.number}.** ${holder.user.username}`;
+  }
+
   getDeadListString() {
     const dead = this.getAllPlayers().filter(p => !p.alive);
     if (dead.length === 0) return null;
@@ -557,6 +574,18 @@ class WerewolfGame {
       voteCount.set(key, (voteCount.get(key) || 0) + 1);
     }
     return [...voteCount.entries()].map(([name, count]) => `**${name}**: ${count} vote${count > 1 ? 's' : ''}`).join('\n');
+  }
+
+  /** Wolfia-style setup display with checkboxes */
+  getSetupString() {
+    const modeCheck = this.mode === GAME_MODE.POPCORN;
+    const lines = [
+      `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia`,
+      `**Day length**    ${this.dayLength} minutes`,
+      `**Min players**   ${this.mode === GAME_MODE.POPCORN ? '3+' : '4+'}`,
+      `**Inned**         (${this.players.size})`,
+    ];
+    return lines.join('\n');
   }
 }
 

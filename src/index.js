@@ -72,16 +72,17 @@ async function startMafiaNight(game) {
   const channel = game.channel;
   if (!channel) return;
 
-  const aliveList = game.getAlivePlayersCompact();
+  const alivePlayers = game.getAlivePlayers();
+  const playerList = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('\n');
 
   const nightEmbed = new EmbedBuilder()
     .setColor(0x1a1a2e)
-    .setTitle(`🌙 Night ${game.round} — The Town Sleeps...`)
+    .setTitle(`Night ${game.round}`)
     .setDescription(
-      `The mafia is choosing their victim...\nThe doctor may save someone...\nThe cop may investigate...\n\n⏰ You have **${NIGHT_TIMER} seconds** for night actions!`
+      `**Game**          Mafia\n**Day**           ${game.round}\n**Living**        ${alivePlayers.length} players\n\nThe mafia is choosing their victim...\nCheck your DMs for night actions!`
     )
-    .addFields({ name: `👥 Alive Players (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false })
-    .setFooter({ text: '🤫 Night actions are secret — check your DMs!' })
+    .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerList || 'None', inline: false })
+    .setFooter({ text: `w.help • Night actions in DM • ${NIGHT_TIMER}s` })
     .setTimestamp();
   await channel.send({ embeds: [nightEmbed] });
 
@@ -94,21 +95,21 @@ async function startMafiaNight(game) {
         await player.user.send({
           embeds: [new EmbedBuilder()
             .setColor(0xE74C3C)
-            .setTitle(`🌙 Night ${game.round} — Mafia Kill`)
+            .setTitle(`Night ${game.round} — Mafia Kill`)
             .setDescription(
-              `Choose your victim!\n\nUse \`w.nightkill <number>\` or \`w.nk <number>\`\n\n${otherWolves.length > 0 ? `🐺 Your mafia teammates:\n${otherWolves.map(w => `**${w.number}.** ${w.user.username}`).join('\n')}` : 'You are the only mafia!'}\n\nAlive players:\n${aliveList}`
+              `Choose your victim!\n\nUse \`w.nk <number>\`\n\n${otherWolves.length > 0 ? `Mafia teammates: ${otherWolves.map(w => `**${w.number}.** ${w.user.username}`).join('  ·  ')}` : 'You are the only mafia!'}\n\nAlive players:\n${playerList}`
             )
-            .setFooter({ text: '🤫 Keep your identity secret!' })
+            .setFooter({ text: 'Keep your identity secret!' })
             .setTimestamp()]
         });
       } else if (player.role === ROLE.DOCTOR) {
-        const saveHint = game.lastProtected ? `⚠️ You saved <@${game.lastProtected}> last night — pick someone else!` : '💡 First night — save anyone!';
+        const saveHint = game.lastProtected ? `Cannot save <@${game.lastProtected}> again — pick someone else!` : 'First night — save anyone!';
         await player.user.send({
           embeds: [new EmbedBuilder()
             .setColor(0x3498DB)
-            .setTitle(`🌙 Night ${game.round} — Doctor Save`)
-            .setDescription(`Choose someone to protect!\n\nUse \`w.save <number>\`\n\n${saveHint}\n\nAlive players:\n${aliveList}`)
-            .setFooter({ text: '💊 One life saved is one battle won!' })
+            .setTitle(`Night ${game.round} — Doctor Save`)
+            .setDescription(`Choose someone to protect!\n\nUse \`w.save <number>\`\n\n${saveHint}\n\nAlive players:\n${playerList}`)
+            .setFooter({ text: 'One life saved is one battle won!' })
             .setTimestamp()]
         });
       } else if (player.role === ROLE.SEER) {
@@ -116,9 +117,9 @@ async function startMafiaNight(game) {
         await player.user.send({
           embeds: [new EmbedBuilder()
             .setColor(0x9B59B6)
-            .setTitle(`🌙 Night ${game.round} — Cop Investigate`)
+            .setTitle(`Night ${game.round} — Cop Investigate`)
             .setDescription(`Choose someone to investigate!\n\nUse \`w.check <number>\`\n\nOther alive players:\n${checkList}`)
-            .setFooter({ text: '🔮 Use your knowledge wisely!' })
+            .setFooter({ text: 'Use your knowledge wisely!' })
             .setTimestamp()]
         });
       }
@@ -149,18 +150,18 @@ async function startMafiaDay(game, nightResults) {
 
   let dayDesc = '';
   if (nightResults.killed) {
-    dayDesc = `💀 **${nightResults.killed.user.username}** was killed by the mafia last night!\nThey were ${ROLE_EMOJI[nightResults.killed.role]} **${nightResults.killed.role}**.`;
+    dayDesc = `**${nightResults.killed.user.username}** was killed by the mafia last night!\nThey were **${nightResults.killed.role}**.`;
   } else if (nightResults.saved) {
-    dayDesc = '🏥 Someone was attacked but the **doctor saved them**! No one died.';
+    dayDesc = 'Someone was attacked but the **doctor saved them**! No one died.';
   } else {
-    dayDesc = '🌙 A quiet night... no one was attacked.';
+    dayDesc = 'A quiet night... no one was attacked.';
   }
 
   const winCheck = game.checkWin();
   if (winCheck) {
     const winEmbed = new EmbedBuilder()
       .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
-      .setTitle(winCheck.winner === 'wolves' ? '🐺 Mafia Wins!' : '🏘️ Town Wins!')
+      .setTitle(winCheck.winner === 'wolves' ? 'Mafia Wins!' : 'Town Wins!')
       .setDescription(`${dayDesc}\n\n${winCheck.message}\n\n${game.getFullPlayerListString()}`)
       .setTimestamp();
     await channel.send({ embeds: [winEmbed] });
@@ -168,13 +169,17 @@ async function startMafiaDay(game, nightResults) {
     return;
   }
 
-  const aliveList = game.getPlayerListString();
+  const alivePlayers = game.getAlivePlayers();
+  const playerList = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+
   const dayEmbed = new EmbedBuilder()
     .setColor(0xFFD700)
-    .setTitle(`☀️ Day ${game.round} — Discuss & Vote!`)
-    .setDescription(`${dayDesc}\n\nVote to lynch a suspect!\nUse \`w.vote <number>\` to vote\nUse \`w.unvote\` to remove your vote\nUse \`w.votecount\` to see votes`)
-    .addFields({ name: `👥 Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false })
-    .setFooter({ text: `⏰ ${DAY_TIMER} seconds to vote!` })
+    .setTitle(`Day ${game.round} — Vote!`)
+    .setDescription(
+      `**Game**          Mafia\n**Day**           ${game.round}\n**Living**        ${alivePlayers.length} players\n\n${dayDesc}\n\nUse \`w.vote <number>\` to vote\n\`w.unvote\` to remove • \`w.votecount\` to see`
+    )
+    .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerList || 'None', inline: false })
+    .setFooter({ text: `${DAY_TIMER}s to vote!` })
     .setTimestamp();
   await channel.send({ embeds: [dayEmbed] });
 
@@ -194,7 +199,7 @@ async function resolveMafiaVote(game) {
   const tally = game.tallyVotes();
   const tallyEmbed = new EmbedBuilder()
     .setColor(0xFF69B4)
-    .setTitle('🗳️ Vote Results!')
+    .setTitle('Vote Results!')
     .setDescription(`${tally.message}${tally.detail ? '\n\n' + tally.detail : ''}`)
     .setTimestamp();
   await channel.send({ embeds: [tallyEmbed] });
@@ -203,7 +208,7 @@ async function resolveMafiaVote(game) {
   if (winCheck) {
     const winEmbed = new EmbedBuilder()
       .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
-      .setTitle(winCheck.winner === 'wolves' ? '🐺 Mafia Wins!' : '🏘️ Town Wins!')
+      .setTitle(winCheck.winner === 'wolves' ? 'Mafia Wins!' : 'Town Wins!')
       .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
       .setTimestamp();
     await channel.send({ embeds: [winEmbed] });
@@ -606,8 +611,8 @@ client.on('messageCreate', async (message) => {
         }
       } else if (cmd === 'w.help') {
         return message.reply(
-          '🐺 **Mafia DM Commands:**\n' +
-          '`w.nightkill <#>` / `w.nk <#>` — Mafia: choose victim\n' +
+          'Werewolf — DM Commands:\n' +
+          '`w.nk <#>` — Mafia: choose victim\n' +
           '`w.save <#>` — Doctor: protect someone\n' +
           '`w.check <#>` — Cop: investigate someone'
         );
@@ -630,16 +635,16 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.help') {
       const helpEmbed = new EmbedBuilder()
         .setColor(0xFF69B4)
-        .setTitle('🐺 Werewolf — Wolfia Style')
+        .setTitle('Werewolf — Help')
         .setDescription('Social deduction game with two modes!')
         .addFields(
-          { name: '🎮 Starting', value: '`w.in` — Sign up for game\n`w.out` — Drop from sign up\n`w.setup [setting] [value]` — Configure\n`w.start` — Start game (host only)\n`w.status` — Current game status', inline: false },
-          { name: '🍿 Popcorn Mode', value: 'Gun mechanic! Shoot to eliminate.\n`w.shoot <number>` — Shoot someone\n🔫 Shoot opposite team = target dies\n🔫 Shoot same team = YOU die, gun passes', inline: false },
-          { name: '🕵️ Mafia Mode', value: 'Classic night/day cycle.\n`w.vote <number>` — Vote to lynch\n`w.unvote` — Remove your vote\n`w.votecount` — See current votes\n`w.nk <number>` — Mafia kill (DM)\n`w.save <number>` — Doctor save (DM)\n`w.check <number>` — Cop check (DM)', inline: false },
-          { name: '⚙️ Setup', value: '`w.setup mode popcorn` — Popcorn mode\n`w.setup mode mafia` — Mafia mode\n`w.setup daylength <mins>` — Day length', inline: false },
-          { name: '🏆 Win Conditions', value: '🏘️ Village wins = all wolves dead\n🐺 Wolves win = wolves >= villagers', inline: false },
+          { name: 'Starting', value: '`w.in` — Sign up\n`w.out` — Drop\n`w.setup` — Configure\n`w.start` — Start (host)\n`w.status` — Game status', inline: false },
+          { name: 'Popcorn Mode', value: '`w.shoot <number>` — Shoot someone\nShoot opposite team = target dies\nShoot same team = YOU die, gun passes', inline: false },
+          { name: 'Mafia Mode', value: '`w.vote <number>` — Vote to lynch\n`w.unvote` — Remove vote\n`w.votecount` — See votes\n`w.nk <number>` — Mafia kill (DM)\n`w.save <number>` — Doctor save (DM)\n`w.check <number>` — Cop check (DM)', inline: false },
+          { name: 'Setup', value: '`w.setup mode popcorn` — Popcorn\n`w.setup mode mafia` — Mafia\n`w.setup daylength <1-30>` — Day timer', inline: false },
+          { name: 'Win Conditions', value: 'Village wins = all wolves dead\nWolves win = wolves >= villagers', inline: false },
         )
-        .setFooter({ text: '💕 Sweetheart Bot — Werewolf' })
+        .setFooter({ text: 'Sweetheart Bot — Werewolf' })
         .setTimestamp();
       return message.reply({ embeds: [helpEmbed] });
     }
@@ -654,14 +659,27 @@ client.on('messageCreate', async (message) => {
       }
       const result = game.join(message.author);
       const isHost = game.hostId === message.author.id;
+
+      // Wolfia-style setup embed with checkboxes
+      const modeCheck = game.mode === GAME_MODE.POPCORN;
+      const setupStr = [
+        `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia`,
+        `**Day length**    ${game.dayLength} minutes`,
+        `**Min players**   ${game.mode === GAME_MODE.POPCORN ? '3+' : '4+'}`,
+        `**Inned**         (${game.players.size})`,
+      ].join('\n');
+
+      const playerList = [...game.players.values()].map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+
       const embed = new EmbedBuilder()
         .setColor(result.success ? 0x2ECC71 : 0xE74C3C)
-        .setTitle('🐺 Werewolf Sign Up')
+        .setTitle(result.success ? 'Setup' : 'Error')
         .setDescription(
           result.success
-            ? `${result.message}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🎮 Use \`w.in\` to sign up\n┣ ${game.mode === GAME_MODE.POPCORN ? '🍿' : '🕵️'} Mode: **${game.mode === GAME_MODE.POPCORN ? 'Popcorn' : 'Mafia'}**\n┗ 👑 Host starts with \`w.start\`${isHost ? '\n\n👑 **You are the HOST!**' : ''}`
+            ? `${setupStr}\n\n**Players:** ${playerList}${isHost ? '\n\n**You are the HOST!** Use `w.start` to begin.' : ''}`
             : result.message
         )
+        .setFooter({ text: `Host: <@${game.hostId}>` })
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }
@@ -670,16 +688,14 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.out') {
       const game = activeGames.get(message.channel.id);
       if (!game) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game in this channel!').setTimestamp()] });
       }
-      // Allow host to out other players, or players to out themselves
       const targetUser = message.mentions.users.first() || message.author;
       const isHost = message.author.id === game.hostId;
       if (targetUser.id !== message.author.id && !isHost) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the host can remove other players!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Only the host can remove other players!').setTimestamp()] });
       }
       const result = game.leave(targetUser.id);
-      // If host left and still in waiting, transfer host
       if (targetUser.id === game.hostId && game.state === GAME_STATE.WAITING && game.players.size > 0) {
         game.hostId = game.players.keys().next().value;
       }
@@ -699,28 +715,29 @@ client.on('messageCreate', async (message) => {
         activeGames.set(message.channel.id, game);
       }
       if (message.author.id !== game.hostId) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the host can change settings!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Only the host can change settings!').setTimestamp()] });
       }
 
       const setting = args[1]?.toLowerCase();
       const value = args[2]?.toLowerCase();
 
       if (!setting) {
-        // Show current setup
+        // Wolfia-style setup embed
+        const modeCheck = game.mode === GAME_MODE.POPCORN;
+        const setupStr = [
+          `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia`,
+          `**Day length**    ${game.dayLength} minutes`,
+          `**Min players**   ${game.mode === GAME_MODE.POPCORN ? '3+' : '4+'}`,
+          `**Inned**         (${game.players.size})`,
+        ].join('\n');
+
         const setupEmbed = new EmbedBuilder()
           .setColor(0x3498DB)
-          .setTitle('⚙️ Game Setup')
-          .setDescription(
-            `━━━━━━━━━━━━━━━━━━━\n` +
-            `┣ 🎮 **Mode:** ${game.mode === GAME_MODE.POPCORN ? '🍿 Popcorn' : '🕵️ Mafia'}\n` +
-            `┣ ⏰ **Day Length:** ${game.dayLength} minutes\n` +
-            `┣ 👥 **Signed Up:** ${game.players.size} players\n` +
-            `┣ 🏷️ **Status:** ${game.state === GAME_STATE.WAITING ? '⏳ Waiting' : '🎮 In Progress'}\n` +
-            `┗ 👑 **Host:** <@${game.hostId}>`
-          )
+          .setTitle(`Setup for channel #${message.channel.name}`)
+          .setDescription(setupStr)
           .addFields({
-            name: '📝 Commands',
-            value: '`w.setup mode popcorn` — Popcorn mode (gun)\n`w.setup mode mafia` — Mafia mode (night/day)\n`w.setup daylength <1-30>` — Day timer',
+            name: 'Commands',
+            value: '`w.setup mode popcorn` — Popcorn\n`w.setup mode mafia` — Mafia\n`w.setup daylength <1-30>` — Day timer',
             inline: false,
           })
           .setTimestamp();
@@ -743,42 +760,43 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.start') {
       let game = activeGames.get(message.channel.id);
       if (!game) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel! Use `w.in` first.').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game in this channel! Use `w.in` first.').setTimestamp()] });
       }
       if (message.author.id !== game.hostId) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the **host** can start the game!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Only the **host** can start the game!').setTimestamp()] });
       }
       if (game.started) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Game already started!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Game already started!').setTimestamp()] });
       }
       const result = game.start();
       if (!result.success) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
       }
 
-      const playerList = game.getAlivePlayersCompact();
+      const alivePlayers = game.getAlivePlayers();
+      const playerListStr = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('\n');
 
       if (result.mode === GAME_MODE.POPCORN) {
-        // Popcorn: DM roles, announce start
         const gunHolder = game.players.get(game.gunHolder);
         const startEmbed = new EmbedBuilder()
           .setColor(0xFF69B4)
-          .setTitle('🍿 Popcorn Game Started!')
+          .setTitle('Popcorn — Day 1')
           .setDescription(
-            `**${game.players.size} players** — **${result.wolfCount}** wolves among you!\n\n${playerList}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🔫 **${gunHolder.user.username}** has the GUN!\n┣ 💥 Use \`w.shoot <number>\` to shoot\n┣ 🎯 Hit opposite team = target dies\n┗ 💀 Hit same team = YOU die, gun passes\n\n🤫 Check your DMs for your role!`
+            `**Game**          Popcorn\n**Day**           1\n**Living**        ${alivePlayers.length} players\n**Wolves**        ${result.wolfCount}\n**Gun holder**    **${gunHolder.number}.** ${gunHolder.user.username}\n\nUse \`w.shoot <number>\` to shoot!\nHit opposite team = target dies\nHit same team = YOU die, gun passes\n\nCheck your DMs for your role!`
           )
-          .setFooter({ text: '🍿 Popcorn Mode — Shoot wisely!' })
+          .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerListStr, inline: false })
+          .setFooter({ text: 'Popcorn Mode — Shoot wisely!' })
           .setTimestamp();
         await message.reply({ embeds: [startEmbed] });
       } else {
-        // Mafia: DM roles, start night
         const startEmbed = new EmbedBuilder()
           .setColor(0xFF69B4)
-          .setTitle('🕵️ Mafia Game Started!')
+          .setTitle('Mafia — Night 1')
           .setDescription(
-            `**${game.players.size} players** — **${result.wolfCount}** mafia among you!\n\n${playerList}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🌙 **Night 1 begins now...**\n┣ 🤫 Check your DMs for your role!\n┗ ⏰ Night actions: ${NIGHT_TIMER}s`
+            `**Game**          Mafia\n**Day**           1\n**Living**        ${alivePlayers.length} players\n**Mafia**         ${result.wolfCount}\n\nNight 1 begins now...\nCheck your DMs for your role!\nNight actions: ${NIGHT_TIMER}s`
           )
-          .setFooter({ text: '🕵️ Mafia Mode — Deception begins!' })
+          .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerListStr, inline: false })
+          .setFooter({ text: 'Mafia Mode — Deception begins!' })
           .setTimestamp();
         await message.reply({ embeds: [startEmbed] });
       }
@@ -791,38 +809,38 @@ client.on('messageCreate', async (message) => {
             const otherWolves = game.getAliveWolves().filter(w => w.user.id !== id);
             if (game.mode === GAME_MODE.POPCORN) {
               const hasGun = game.gunHolder === id;
-              roleMsg = `🐺 You are a **WOLF**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🤫 Keep your identity secret\n┣ 🐺 Find and eliminate villagers\n${otherWolves.length > 0 ? `┣ 🐺 Your wolf teammates:\n${otherWolves.map(w => `┃   **${w.number}.** ${w.user.username}`).join('\n')}\n┗` : '┗ 🐺 You are the only wolf!'}${hasGun ? '\n\n🔫 **YOU HAVE THE GUN!** Use `w.shoot <number>` to shoot!' : ''}`;
+              roleMsg = `You are a **WOLF**!\n\nKeep your identity secret.\nFind and eliminate villagers.${otherWolves.length > 0 ? `\n\nWolf teammates: ${otherWolves.map(w => `**${w.number}.** ${w.user.username}`).join('  ·  ')}` : '\n\nYou are the only wolf!'}${hasGun ? '\n\n**YOU HAVE THE GUN!** Use `w.shoot <number>` to shoot!' : ''}`;
             } else {
-              roleMsg = `🐺 You are **MAFIA**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🩸 Kill at night with \`w.nk <number>\`\n┣ 🤫 Keep your identity secret\n${otherWolves.length > 0 ? `┣ 🐺 Your mafia teammates:\n${otherWolves.map(w => `┃   **${w.number}.** ${w.user.username}`).join('\n')}\n┗` : '┗ 🐺 You are the only mafia!'}\n\nUse \`w.nightkill <number>\` or \`w.nk <number>\` in DM at night.`;
+              roleMsg = `You are **MAFIA**!\n\nKill at night with \`w.nk <number>\`\nKeep your identity secret.${otherWolves.length > 0 ? `\n\nMafia teammates: ${otherWolves.map(w => `**${w.number}.** ${w.user.username}`).join('  ·  ')}` : '\n\nYou are the only mafia!'}\n\nUse \`w.nk <number>\` in DM at night.`;
             }
           } else if (player.role === ROLE.DOCTOR) {
-            const aliveList = game.getAlivePlayersCompact();
-            roleMsg = `💊 You are the **DOCTOR**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🛡️ Save one person each night\n┣ 📨 DM: \`w.save <number>\`\n┣ ⚠️ Can't save same person 2 nights in a row\n┗ 💉 Keep the town alive!\n\nAlive players:\n${aliveList}`;
+            const aliveList = game.getAlivePlayers().map(p => `**${p.number}.** ${p.user.username}`).join('\n');
+            roleMsg = `You are the **DOCTOR**!\n\nSave one person each night.\nDM: \`w.save <number>\`\nCan't save same person 2 nights in a row.\n\nAlive players:\n${aliveList}`;
           } else if (player.role === ROLE.SEER) {
             const checkList = game.getAlivePlayers().filter(p => p.user.id !== id).map(p => `**${p.number}.** ${p.user.username}`).join('\n');
             if (game.mode === GAME_MODE.POPCORN) {
-              roleMsg = `🔮 You are the **SEER**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 👁️ Your instinct tells you who is suspicious\n┣ 🤫 Keep your identity secret\n┗ 💡 Share info carefully — wolves may target you!`;
+              roleMsg = `You are the **SEER**!\n\nYour instinct tells you who is suspicious.\nKeep your identity secret.\nShare info carefully — wolves may target you!`;
             } else {
-              roleMsg = `🔮 You are the **COP**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 👁️ Investigate one player each night\n┣ 📨 DM: \`w.check <number>\`\n┗ 🧠 Use your knowledge wisely!\n\nOther alive players:\n${checkList}`;
+              roleMsg = `You are the **COP**!\n\nInvestigate one player each night.\nDM: \`w.check <number>\`\n\nOther alive players:\n${checkList}`;
             }
           } else {
             if (game.mode === GAME_MODE.POPCORN) {
-              roleMsg = `🏘️ You are a **VILLAGER**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 💪 Survive and find the wolves\n┣ 🤔 Pay attention to who shoots who\n┗ 🎯 Help identify the wolves!`;
+              roleMsg = `You are a **VILLAGER**!\n\nSurvive and find the wolves.\nPay attention to who shoots who.\nHelp identify the wolves!`;
             } else {
-              roleMsg = `🏘️ You are a **VILLAGER**!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 💪 Survive and find the mafia\n┣ 🗳️ Vote during the day: \`w.vote <number>\`\n┗ 😴 Sleep at night...`;
+              roleMsg = `You are a **VILLAGER**!\n\nSurvive and find the mafia.\nVote during the day: \`w.vote <number>\`\nSleep at night...`;
             }
           }
           await player.user.send({
             embeds: [new EmbedBuilder()
               .setColor(ROLE_COLORS[player.role] || 0xFF69B4)
-              .setTitle(`🎭 Your Secret Role — ${ROLE_EMOJI[player.role]} ${player.role}`)
+              .setTitle(`Your Role — ${player.role}`)
               .setDescription(roleMsg)
-              .setFooter({ text: "🤫 Don't share your role!" })
+              .setFooter({ text: "Don't share your role!" })
               .setTimestamp()]
           });
         } catch (err) {
           console.error(`Could not DM ${player.user.username}:`, err.message);
-          await message.channel.send(`⚠️ Could not DM <@${id}> — tell them to enable DMs!`);
+          await message.channel.send(`Could not DM <@${id}> — tell them to enable DMs!`);
         }
       }
 
@@ -837,51 +855,56 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.shoot' || cmd === 'w.s') {
       const game = activeGames.get(message.channel.id);
       if (!game || game.state === GAME_STATE.ENDED) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active game! Use `w.in` then `w.start`').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No active game! Use `w.in` then `w.start`').setTimestamp()] });
       }
       if (game.mode !== GAME_MODE.POPCORN) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 `w.shoot` is for Popcorn mode only! Use `w.vote` in Mafia.').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('`w.shoot` is for Popcorn mode only! Use `w.vote` in Mafia.').setTimestamp()] });
       }
       const targetNum = parseInt(args[1]);
       if (isNaN(targetNum)) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🔫 Use `w.shoot <number>` — Example: `w.shoot 3`').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Use `w.shoot <number>` — Example: `w.shoot 3`').setTimestamp()] });
       }
       const result = game.shoot(message.author.id, targetNum);
       if (!result.success) {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
       }
 
-      // Shoot result embed
+      // Shoot result embed — Wolfia style with updated game state
+      const alivePlayers = game.getAlivePlayers();
+      const livingStr = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+      const wolvesStr = game.getAliveWolves().map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+      const gunHolder = game.players.get(game.gunHolder);
+
       const shootEmbed = new EmbedBuilder()
         .setColor(result.shooterDies ? 0xE74C3C : 0xFFD700)
-        .setTitle(result.shooterDies ? '💀 MISFIRE!' : '💥 HIT!')
-        .setDescription(result.message)
+        .setTitle(result.shooterDies ? 'Misfire!' : 'Hit!')
+        .setDescription(
+          `${result.message}\n\n**Game**          Popcorn\n**Day**           ${game.round}\n**Living**        ${alivePlayers.length}\n**Gun holder**    **${gunHolder?.number || '?'}.** ${gunHolder?.user.username || 'None'}`
+        )
+        .addFields(
+          { name: `Living Players (${alivePlayers.length})`, value: livingStr || 'None', inline: false },
+        )
         .setTimestamp();
       await message.reply({ embeds: [shootEmbed] });
 
       // Check win
       const winCheck = game.checkWin();
       if (winCheck) {
-        const gunHolder = game.players.get(game.gunHolder);
         const winEmbed = new EmbedBuilder()
           .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
-          .setTitle(winCheck.winner === 'wolves' ? '🐺 Wolves Win!' : '🏘️ Village Wins!')
+          .setTitle(winCheck.winner === 'wolves' ? 'Wolves Win!' : 'Village Wins!')
           .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
-          .setFooter({ text: '🍿 Game Over — Thanks for playing!' })
+          .setFooter({ text: 'Game Over — Thanks for playing!' })
           .setTimestamp();
         await message.channel.send({ embeds: [winEmbed] });
         activeGames.delete(message.channel.id);
-      } else {
-        // Announce new gun holder
-        const gunHolder = game.players.get(game.gunHolder);
-        if (gunHolder && !result.shooterDies) {
-          // Shooter still has gun (they hit opposite team)
-        } else if (gunHolder) {
-          const gunEmbed = new EmbedBuilder()
-            .setColor(0xFFD700)
-            .setTitle('🔫 New Gun Holder!')
-            .setDescription(`The gun passes to **${gunHolder.user.username}**!\n\nUse \`w.shoot <number>\` to shoot!`)
-            .setTimestamp();
+      } else if (result.shooterDies && gunHolder) {
+        // Gun passed to target
+        const gunEmbed = new EmbedBuilder()
+          .setColor(0xFFD700)
+          .setTitle('Gun Passed!')
+          .setDescription(`The gun passes to **${gunHolder.user.username}**!\n\nUse \`w.shoot <number>\` to shoot!`)
+          .setTimestamp();
           await message.channel.send({ embeds: [gunEmbed] });
         }
       }
@@ -892,27 +915,27 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.vote' || cmd === 'w.v') {
       const game = activeGames.get(message.channel.id);
       if (!game || game.state === GAME_STATE.ENDED) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active game!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No active game!').setTimestamp()] });
       }
       if (game.mode !== GAME_MODE.MAFIA) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 `w.vote` is for Mafia mode only! Use `w.shoot` in Popcorn.').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('`w.vote` is for Mafia mode only! Use `w.shoot` in Popcorn.').setTimestamp()] });
       }
       if (game.state !== GAME_STATE.DAY) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🌙 You can only vote during the day!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('You can only vote during the day!').setTimestamp()] });
       }
       const targetNum = parseInt(args[1]);
       if (isNaN(targetNum)) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🗳️ Use `w.vote <number>` — Example: `w.vote 3`').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Use `w.vote <number>` — Example: `w.vote 3`').setTimestamp()] });
       }
       const target = game.getPlayerByNumber(targetNum);
       if (!target) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`🚫 Player #${targetNum} not found or dead!`).setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`Player #${targetNum} not found or dead!`).setTimestamp()] });
       }
       const result = game.vote(message.author.id, target.user.id);
       if (result.success) {
         const voteCount = game.votes.size;
         const aliveCount = game.getAlivePlayers().length;
-        await message.reply({ embeds: [new EmbedBuilder().setColor(0xFFD700).setDescription(`${result.message}\n📊 **${voteCount}/${aliveCount}** votes cast`).setTimestamp()] });
+        await message.reply({ embeds: [new EmbedBuilder().setColor(0xFFD700).setDescription(`${result.message}\n**${voteCount}/${aliveCount}** votes cast`).setTimestamp()] });
         if (voteCount >= aliveCount) await resolveMafiaVote(game);
       } else {
         await message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
@@ -924,7 +947,7 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.unvote' || cmd === 'w.u') {
       const game = activeGames.get(message.channel.id);
       if (!game || game.mode !== GAME_MODE.MAFIA) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active Mafia game!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No active Mafia game!').setTimestamp()] });
       }
       const result = game.unvote(message.author.id);
       return message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] });
@@ -934,49 +957,57 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.votecount' || cmd === 'w.vc') {
       const game = activeGames.get(message.channel.id);
       if (!game || game.mode !== GAME_MODE.MAFIA) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No active Mafia game!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No active Mafia game!').setTimestamp()] });
       }
       const vc = game.getVoteCountString();
-      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFFD700).setTitle('🗳️ Vote Count').setDescription(vc).setTimestamp()] });
+      return message.reply({ embeds: [new EmbedBuilder().setColor(0xFFD700).setTitle('Vote Count').setDescription(vc).setTimestamp()] });
     }
 
     /* ── w.status ── */
     if (cmd === 'w.status' || cmd === 'w.st') {
       const game = activeGames.get(message.channel.id);
       if (!game) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel! Use `w.in` to sign up.').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game in this channel! Use `w.in` to sign up.').setTimestamp()] });
       }
-      const modeIcon = game.mode === GAME_MODE.POPCORN ? '🍿' : '🕵️';
-      const phaseIcon = game.state === GAME_STATE.NIGHT ? '🌙' : game.state === GAME_STATE.DAY ? '☀️' : '⏳';
 
-      let statusDesc = `━━━━━━━━━━━━━━━━━━━\n`;
-      statusDesc += `┣ ${modeIcon} **Mode:** ${game.mode === GAME_MODE.POPCORN ? 'Popcorn' : 'Mafia'}\n`;
-      statusDesc += `┣ ${phaseIcon} **Phase:** ${game.state === GAME_STATE.WAITING ? 'Waiting' : game.state === GAME_STATE.NIGHT ? `Night ${game.round}` : game.state === GAME_STATE.DAY ? `Day ${game.round}` : 'Ended'}\n`;
-      statusDesc += `┣ 👥 **Players:** ${game.getAlivePlayers().length} alive / ${game.players.size} total\n`;
+      const alivePlayers = game.getAlivePlayers();
+      const livingStr = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
 
-      if (game.mode === GAME_MODE.POPCORN && game.started) {
-        const gunHolder = game.players.get(game.gunHolder);
-        if (gunHolder) statusDesc += `┣ 🔫 **Gun:** ${gunHolder.user.username}\n`;
+      let statusDesc = '';
+      if (game.started) {
+        statusDesc = `**Game**          ${game.mode === GAME_MODE.POPCORN ? 'Popcorn' : 'Mafia'}\n`;
+        statusDesc += `**Day**           ${game.round}\n`;
+        statusDesc += `**Phase**         ${game.state === GAME_STATE.NIGHT ? 'Night' : game.state === GAME_STATE.DAY ? 'Day' : 'Ended'}\n`;
+        statusDesc += `**Living**        ${alivePlayers.length}\n`;
+        if (game.mode === GAME_MODE.POPCORN) {
+          const gunHolder = game.players.get(game.gunHolder);
+          if (gunHolder) statusDesc += `**Gun holder**    **${gunHolder.number}.** ${gunHolder.user.username}\n`;
+        }
+        if (game.mode === GAME_MODE.MAFIA && game.state === GAME_STATE.DAY) {
+          statusDesc += `**Votes**         ${game.votes.size}/${alivePlayers.length}\n`;
+        }
+      } else {
+        const modeCheck = game.mode === GAME_MODE.POPCORN;
+        statusDesc = `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia\n`;
+        statusDesc += `**Day length**    ${game.dayLength} minutes\n`;
+        statusDesc += `**Min players**   ${game.mode === GAME_MODE.POPCORN ? '3+' : '4+'}\n`;
+        statusDesc += `**Inned**         (${game.players.size})\n`;
       }
-      if (game.mode === GAME_MODE.MAFIA && game.state === GAME_STATE.DAY) {
-        statusDesc += `┣ 🗳️ **Votes:** ${game.votes.size}/${game.getAlivePlayers().length}\n`;
-      }
-      statusDesc += `┗ 👑 **Host:** <@${game.hostId}>`;
 
-      const aliveList = game.getPlayerListString();
       const deadList = game.getDeadListString();
 
       const statusEmbed = new EmbedBuilder()
         .setColor(0x3498DB)
-        .setTitle('🐺 Game Status')
+        .setTitle(game.started ? `${game.mode === GAME_MODE.POPCORN ? 'Popcorn' : 'Mafia'} — Status` : `Setup for channel #${message.channel.name}`)
         .setDescription(statusDesc);
       if (game.started) {
-        statusEmbed.addFields({ name: `✅ Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false });
-        if (deadList) statusEmbed.addFields({ name: '💀 Eliminated', value: deadList, inline: false });
+        statusEmbed.addFields({ name: `Living (${alivePlayers.length})`, value: livingStr || 'None', inline: false });
+        if (deadList) statusEmbed.addFields({ name: 'Eliminated', value: deadList, inline: false });
       } else {
-        statusEmbed.addFields({ name: `📝 Signed Up (${game.players.size})`, value: game.getPlayerListString() || 'None', inline: false });
+        const playerListStr = [...game.players.values()].map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
+        statusEmbed.addFields({ name: `Signed Up (${game.players.size})`, value: playerListStr || 'None', inline: false });
       }
-      statusEmbed.setTimestamp();
+      statusEmbed.setFooter({ text: `Host: <@${game.hostId}>` }).setTimestamp();
       return message.reply({ embeds: [statusEmbed] });
     }
 
@@ -984,16 +1015,16 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.players') {
       const game = activeGames.get(message.channel.id);
       if (!game) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game in this channel!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game in this channel!').setTimestamp()] });
       }
       const aliveList = game.getPlayerListString();
       const deadList = game.getDeadListString();
-      const embed = new EmbedBuilder().setColor(0xFF69B4).setTitle('🐺 Players');
+      const embed = new EmbedBuilder().setColor(0xFF69B4).setTitle('Players');
       if (game.started) {
-        embed.addFields({ name: `✅ Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false });
-        if (deadList) embed.addFields({ name: '💀 Eliminated', value: deadList, inline: false });
+        embed.addFields({ name: `Alive (${game.getAlivePlayers().length})`, value: aliveList || 'None', inline: false });
+        if (deadList) embed.addFields({ name: 'Eliminated', value: deadList, inline: false });
       } else {
-        embed.addFields({ name: `📝 Signed Up (${game.players.size})`, value: aliveList || 'None', inline: false });
+        embed.addFields({ name: `Signed Up (${game.players.size})`, value: aliveList || 'None', inline: false });
       }
       embed.setTimestamp();
       return message.reply({ embeds: [embed] });
@@ -1003,17 +1034,17 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'w.end') {
       const game = activeGames.get(message.channel.id);
       if (!game) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 No game to end!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('No game to end!').setTimestamp()] });
       }
       if (message.author.id !== game.hostId) {
-        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 Only the **host** can end the game!').setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('Only the **host** can end the game!').setTimestamp()] });
       }
       game.end();
       const playerList = game.getFullPlayerListString();
       activeGames.delete(message.channel.id);
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
-        .setTitle('🐺 Game Ended!')
+        .setTitle('Game Ended!')
         .setDescription(`The game was ended by the host.\n\n${playerList}`)
         .setTimestamp();
       return message.reply({ embeds: [embed] });
