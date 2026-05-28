@@ -56,7 +56,7 @@ if (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_KEY || process.env
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES, AFK_RETURN_MESSAGES, AFK_MENTION_MESSAGES } = require('./messages');
 const {
   WerewolfGame, GAME_MODE, GAME_STATE, ROLE, ROLE_EMOJI, ROLE_COLORS,
-  activeGames, NIGHT_TIMER, DAY_TIMER
+  activeGames, NIGHT_TIMER, DAY_TIMER, SHOOT_TIMER
 } = require('./werewolf');
 const { pick, timeSince } = require('./utils');
 const { HandCricketGame, GAME_PHASE: HC_PHASE } = require('./handcricket');
@@ -66,6 +66,91 @@ const hcPlayerMap = new Map();  // userId → channelId (for DM routing)
 /* ═══════════════════════════════════════════
    🐺 Werewolf — Mafia Night/Day Phase Functions
    ═══════════════════════════════════════════ */
+
+/* ── Popcorn Shoot Timer ── */
+
+async function startPopcornShootTimer(game) {
+  if (game.mode !== GAME_MODE.POPCORN || game.state === GAME_STATE.ENDED) return;
+  if (game.shootTimer) { clearTimeout(game.shootTimer); game.shootTimer = null; }
+
+  const channel = game.channel;
+  if (!channel) return;
+
+  const gunHolder = game.players.get(game.gunHolder);
+  if (!gunHolder) return;
+
+  // Warning at 10 seconds before expiry
+  const warningTime = Math.max(0, (game.shootTimerLength - 10) * 1000);
+  let warningSent = false;
+
+  if (warningTime > 0) {
+    game._shootWarningTimer = setTimeout(async () => {
+      if (game.state === GAME_STATE.ENDED || game.gunHolder !== gunHolder.user.id) return;
+      warningSent = true;
+      try {
+        await channel.send({ embeds: [new EmbedBuilder()
+          .setColor(0xF39C12)
+          .setTitle('⏰ Shoot Timer Warning!')
+          .setDescription(`**${gunHolder.user.username}** has **10 seconds** left to shoot!\nUse \`w.shoot <number>\` now or you'll be eliminated!`)
+          .setTimestamp()] });
+      } catch (e) {}
+    }, warningTime);
+  }
+
+  // Main timer — gun holder is eliminated if they don't shoot in time
+  game.shootTimer = setTimeout(async () => {
+    if (game._shootWarningTimer) { clearTimeout(game._shootWarningTimer); game._shootWarningTimer = null; }
+    if (game.state === GAME_STATE.ENDED) return;
+    if (game.gunHolder !== gunHolder.user.id) return;  // gun already passed
+
+    // Gun holder didn't shoot — they are eliminated!
+    gunHolder.alive = false;
+
+    const timeoutEmbed = new EmbedBuilder()
+      .setColor(0xE74C3C)
+      .setTitle('⏰ Time\'s Up!')
+      .setDescription(
+        `**${gunHolder.user.username}** ran out of time and is eliminated!\n` +
+        `💀 **${gunHolder.user.username}** (${ROLE_EMOJI[gunHolder.role]} ${gunHolder.role}) couldn't pull the trigger!`
+      )
+      .setTimestamp();
+    await channel.send({ embeds: [timeoutEmbed] });
+
+    // Check win after timeout elimination
+    const winCheck = game.checkWin();
+    if (winCheck) {
+      const winEmbed = new EmbedBuilder()
+        .setColor(winCheck.winner === 'wolves' ? 0xE74C3C : 0x2ECC71)
+        .setTitle(winCheck.winner === 'wolves' ? 'Wolves Win!' : 'Village Wins!')
+        .setDescription(`${winCheck.message}\n\n${game.getFullPlayerListString()}`)
+        .setFooter({ text: 'Game Over — Thanks for playing!' })
+        .setTimestamp();
+      await channel.send({ embeds: [winEmbed] });
+      activeGames.delete(channel.id);
+      return;
+    }
+
+    // Pass gun to a random alive player
+    const alivePlayers = game.getAlivePlayers();
+    if (alivePlayers.length > 0) {
+      const nextHolder = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+      game.gunHolder = nextHolder.user.id;
+
+      const passEmbed = new EmbedBuilder()
+        .setColor(0xFFD700)
+        .setTitle('🔫 Gun Passed!')
+        .setDescription(
+          `The gun passes to **${nextHolder.user.username}**!\n\n` +
+          `Use \`w.shoot <number>\` to shoot!\n⏱️ **${game.shootTimerLength}s** on the clock!`
+        )
+        .setTimestamp();
+      await channel.send({ embeds: [passEmbed] });
+
+      // Start new timer for the next gun holder
+      await startPopcornShootTimer(game);
+    }
+  }, game.shootTimerLength * 1000);
+}
 
 async function startMafiaNight(game) {
   game.startNight();
@@ -641,7 +726,7 @@ client.on('messageCreate', async (message) => {
           { name: 'Starting', value: '`w.in` — Sign up\n`w.out` — Drop\n`w.setup` — Configure\n`w.start` — Start (host)\n`w.status` — Game status', inline: false },
           { name: 'Popcorn Mode', value: '`w.shoot <number>` — Shoot someone\nShoot opposite team = target dies\nShoot same team = YOU die, gun passes', inline: false },
           { name: 'Mafia Mode', value: '`w.vote <number>` — Vote to lynch\n`w.unvote` — Remove vote\n`w.votecount` — See votes\n`w.nk <number>` — Mafia kill (DM)\n`w.save <number>` — Doctor save (DM)\n`w.check <number>` — Cop check (DM)', inline: false },
-          { name: 'Setup', value: '`w.setup mode popcorn` — Popcorn\n`w.setup mode mafia` — Mafia\n`w.setup daylength <1-30>` — Day timer', inline: false },
+          { name: 'Setup', value: '`w.setup mode popcorn` — Popcorn\n`w.setup mode mafia` — Mafia\n`w.setup daylength <1-30>` — Day timer\n`w.setup shoottimer <10-120>` — Shoot timer (Popcorn)', inline: false },
           { name: 'Win Conditions', value: 'Village wins = all wolves dead\nWolves win = wolves >= villagers', inline: false },
         )
         .setFooter({ text: 'Sweetheart Bot — Werewolf' })
@@ -727,6 +812,7 @@ client.on('messageCreate', async (message) => {
         const setupStr = [
           `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia`,
           `**Day length**    ${game.dayLength} minutes`,
+          `**Shoot timer**   ${game.shootTimerLength}s ${modeCheck ? '(Popcorn)' : '(N/A)'}`,
           `**Min players**   ${game.mode === GAME_MODE.POPCORN ? '3+' : '4+'}`,
           `**Inned**         (${game.players.size})`,
         ].join('\n');
@@ -737,7 +823,7 @@ client.on('messageCreate', async (message) => {
           .setDescription(setupStr)
           .addFields({
             name: 'Commands',
-            value: '`w.setup mode popcorn` — Popcorn\n`w.setup mode mafia` — Mafia\n`w.setup daylength <1-30>` — Day timer',
+            value: '`w.setup mode popcorn` — Popcorn\n`w.setup mode mafia` — Mafia\n`w.setup daylength <1-30>` — Day timer\n`w.setup shoottimer <10-120>` — Shoot timer (Popcorn)',
             inline: false,
           })
           .setTimestamp();
@@ -749,8 +835,10 @@ client.on('messageCreate', async (message) => {
         result = game.setMode(value);
       } else if (setting === 'daylength') {
         result = game.setDayLength(value);
+      } else if (setting === 'shoottimer') {
+        result = game.setShootTimer(value);
       } else {
-        result = { success: false, message: '🚫 Unknown setting! Use `mode` or `daylength`' };
+        result = { success: false, message: '🚫 Unknown setting! Use `mode`, `daylength`, or `shoottimer`' };
       }
 
       return message.reply({ embeds: [new EmbedBuilder().setColor(result.success ? 0x2ECC71 : 0xE74C3C).setDescription(result.message).setTimestamp()] });
@@ -782,12 +870,15 @@ client.on('messageCreate', async (message) => {
           .setColor(0xFF69B4)
           .setTitle('Popcorn — Day 1')
           .setDescription(
-            `**Game**          Popcorn\n**Day**           1\n**Living**        ${alivePlayers.length} players\n**Wolves**        ${result.wolfCount}\n**Gun holder**    **${gunHolder.number}.** ${gunHolder.user.username}\n\nUse \`w.shoot <number>\` to shoot!\nHit opposite team = target dies\nHit same team = YOU die, gun passes\n\nCheck your DMs for your role!`
+            `**Game**          Popcorn\n**Day**           1\n**Living**        ${alivePlayers.length} players\n**Wolves**        ${result.wolfCount}\n**Gun holder**    **${gunHolder.number}.** ${gunHolder.user.username}\n\nUse \`w.shoot <number>\` to shoot!\nHit opposite team = target dies\nHit same team = YOU die, gun passes\n\n⏱️ **${game.shootTimerLength}s** to shoot or you're eliminated!\n\nCheck your DMs for your role!`
           )
           .addFields({ name: `Living Players (${alivePlayers.length})`, value: playerListStr, inline: false })
-          .setFooter({ text: 'Popcorn Mode — Shoot wisely!' })
+          .setFooter({ text: `Popcorn Mode — ${game.shootTimerLength}s shoot timer!` })
           .setTimestamp();
         await message.reply({ embeds: [startEmbed] });
+
+        // Start shoot timer for gun holder
+        await startPopcornShootTimer(game);
       } else {
         const startEmbed = new EmbedBuilder()
           .setColor(0xFF69B4)
@@ -869,6 +960,10 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
       }
 
+      // Clear shoot timer — gun holder shot in time
+      if (game.shootTimer) { clearTimeout(game.shootTimer); game.shootTimer = null; }
+      if (game._shootWarningTimer) { clearTimeout(game._shootWarningTimer); game._shootWarningTimer = null; }
+
       // Shoot result embed — Wolfia style with updated game state
       const alivePlayers = game.getAlivePlayers();
       const livingStr = alivePlayers.map(p => `**${p.number}.** ${p.user.username}`).join('  ·  ');
@@ -899,13 +994,17 @@ client.on('messageCreate', async (message) => {
         await message.channel.send({ embeds: [winEmbed] });
         activeGames.delete(message.channel.id);
       } else if (result.shooterDies && gunHolder) {
-        // Gun passed to target
+        // Gun passed to target — start new shoot timer
         const gunEmbed = new EmbedBuilder()
           .setColor(0xFFD700)
           .setTitle('Gun Passed!')
-          .setDescription(`The gun passes to **${gunHolder.user.username}**!\n\nUse \`w.shoot <number>\` to shoot!`)
+          .setDescription(`The gun passes to **${gunHolder.user.username}**!\n\nUse \`w.shoot <number>\` to shoot!\n⏱️ **${game.shootTimerLength}s** on the clock!`)
           .setTimestamp();
         await message.channel.send({ embeds: [gunEmbed] });
+        await startPopcornShootTimer(game);
+      } else {
+        // Shooter keeps gun — restart shoot timer
+        await startPopcornShootTimer(game);
       }
       return;
     }
@@ -981,6 +1080,7 @@ client.on('messageCreate', async (message) => {
         if (game.mode === GAME_MODE.POPCORN) {
           const gunHolder = game.players.get(game.gunHolder);
           if (gunHolder) statusDesc += `**Gun holder**    **${gunHolder.number}.** ${gunHolder.user.username}\n`;
+          statusDesc += `**Shoot timer**   ${game.shootTimerLength}s\n`;
         }
         if (game.mode === GAME_MODE.MAFIA && game.state === GAME_STATE.DAY) {
           statusDesc += `**Votes**         ${game.votes.size}/${alivePlayers.length}\n`;
@@ -989,6 +1089,7 @@ client.on('messageCreate', async (message) => {
         const modeCheck = game.mode === GAME_MODE.POPCORN;
         statusDesc = `**Game**          ${modeCheck ? '[x]' : '[ ]'} Popcorn   ${!modeCheck ? '[x]' : '[ ]'} Mafia\n`;
         statusDesc += `**Day length**    ${game.dayLength} minutes\n`;
+        statusDesc += `**Shoot timer**   ${game.shootTimerLength}s ${modeCheck ? '(Popcorn)' : '(N/A)'}\n`;
         statusDesc += `**Min players**   ${game.mode === GAME_MODE.POPCORN ? '3+' : '4+'}\n`;
         statusDesc += `**Inned**         (${game.players.size})\n`;
       }

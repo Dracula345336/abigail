@@ -70,6 +70,7 @@ const ROLE_COLORS = {
 
 const NIGHT_TIMER = 60;
 const DAY_TIMER = 90;
+const SHOOT_TIMER = 30;  // seconds — gun holder must shoot within this time
 
 class WerewolfGame {
   constructor(guildId, channelId, hostId) {
@@ -102,6 +103,10 @@ class WerewolfGame {
 
     // Shoot cooldown (prevent spam)
     this.lastShootTime = 0;
+
+    // Shoot timer (Popcorn mode — gun holder must shoot in time)
+    this.shootTimer = null;
+    this.shootTimerLength = SHOOT_TIMER;  // seconds, configurable via w.setup
   }
 
   /* ── Setup ── */
@@ -519,10 +524,19 @@ class WerewolfGame {
     this.votes.clear();
   }
 
+  setShootTimer(seconds) {
+    if (this.state !== GAME_STATE.WAITING) return { success: false, message: '🚫 Can only change settings before game starts!' };
+    const s = parseInt(seconds);
+    if (isNaN(s) || s < 10 || s > 120) return { success: false, message: '🚫 Shoot timer must be 10-120 seconds!' };
+    this.shootTimerLength = s;
+    return { success: true, message: `🔫 Shoot timer set to **${s} seconds**!` };
+  }
+
   end() {
     this.state = GAME_STATE.ENDED;
     if (this.nightTimer) { clearTimeout(this.nightTimer); this.nightTimer = null; }
     if (this.dayTimer) { clearTimeout(this.dayTimer); this.dayTimer = null; }
+    if (this.shootTimer) { clearTimeout(this.shootTimer); this.shootTimer = null; }
     return this.getAllPlayers();
   }
 
@@ -593,5 +607,5 @@ const activeGames = new Map();
 
 module.exports = {
   WerewolfGame, GAME_MODE, GAME_STATE, ROLE, ROLE_EMOJI, ROLE_COLORS,
-  activeGames, NIGHT_TIMER, DAY_TIMER
+  activeGames, NIGHT_TIMER, DAY_TIMER, SHOOT_TIMER
 };
