@@ -905,8 +905,7 @@ client.on('messageCreate', async (message) => {
           .setTitle('Gun Passed!')
           .setDescription(`The gun passes to **${gunHolder.user.username}**!\n\nUse \`w.shoot <number>\` to shoot!`)
           .setTimestamp();
-          await message.channel.send({ embeds: [gunEmbed] });
-        }
+        await message.channel.send({ embeds: [gunEmbed] });
       }
       return;
     }
