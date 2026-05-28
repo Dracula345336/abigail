@@ -40,7 +40,46 @@ CREATE TABLE IF NOT EXISTS wallets (
   PRIMARY KEY (user_id, guild_id)
 );
 
--- 4. Disable RLS on all tables
+-- 4. Create server_pools table (server event donations)
+CREATE TABLE IF NOT EXISTS server_pools (
+  guild_id   TEXT NOT NULL PRIMARY KEY,
+  balance    BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. Create pool_donors table (track who donated)
+CREATE TABLE IF NOT EXISTS pool_donors (
+  guild_id   TEXT NOT NULL,
+  user_id    TEXT NOT NULL,
+  username   TEXT,
+  total      BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (guild_id, user_id)
+);
+
+-- 6. Create afk_break_access table (who can break your AFK)
+CREATE TABLE IF NOT EXISTS afk_break_access (
+  guild_id          TEXT NOT NULL,
+  owner_id          TEXT NOT NULL,
+  allowed_user_id   TEXT NOT NULL,
+  allowed_username  TEXT,
+  created_at        TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (guild_id, owner_id, allowed_user_id)
+);
+
+-- 7. Create afk_break_access_config table (lock/unlock AFK break)
+CREATE TABLE IF NOT EXISTS afk_break_access_config (
+  user_id    TEXT NOT NULL,
+  guild_id   TEXT NOT NULL,
+  locked     BOOLEAN NOT NULL DEFAULT false,
+  PRIMARY KEY (user_id, guild_id)
+);
+
+-- 8. Disable RLS on all tables
 ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mimic_access DISABLE ROW LEVEL SECURITY;
 ALTER TABLE wallets DISABLE ROW LEVEL SECURITY;
+ALTER TABLE server_pools DISABLE ROW LEVEL SECURITY;
+ALTER TABLE pool_donors DISABLE ROW LEVEL SECURITY;
+ALTER TABLE afk_break_access DISABLE ROW LEVEL SECURITY;
+ALTER TABLE afk_break_access_config DISABLE ROW LEVEL SECURITY;

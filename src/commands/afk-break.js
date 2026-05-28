@@ -54,6 +54,78 @@ module.exports = {
       });
     }
 
+    // ── Access Check ──
+    const isServerOwner = interaction.guild.ownerId === interaction.user.id;
+    const isSelfBreak = targetUser.id === interaction.user.id;
+
+    // Server owner can always break anyone's AFK; you can always break your own
+    if (!isServerOwner && !isSelfBreak) {
+      // Check if target has locked their AFK break
+      let isLocked = false;
+      const configKey = `${interaction.guild.id}-${targetUser.id}`;
+
+      // Check in-memory cache first
+      if (interaction.client.afkBreakAccessConfig) {
+        const config = interaction.client.afkBreakAccessConfig.get(configKey);
+        if (config) isLocked = config.locked;
+      }
+
+      // If not in cache, check DB
+      if (isLocked === false && supabase) {
+        try {
+          const { data: cfgData } = await supabase
+            .from('afk_break_access_config')
+            .select('locked')
+            .eq('guild_id', interaction.guild.id)
+            .eq('user_id', targetUser.id)
+            .maybeSingle();
+          if (cfgData) {
+            isLocked = cfgData.locked;
+            // Cache it
+            if (!interaction.client.afkBreakAccessConfig) interaction.client.afkBreakAccessConfig = new Map();
+            interaction.client.afkBreakAccessConfig.set(configKey, { locked: isLocked });
+          }
+        } catch (err) {
+          console.error('AFK break access config check error:', err.message);
+        }
+      }
+
+      if (isLocked) {
+        // Check if breaker is in the allowed list
+        let hasAccess = false;
+
+        // Check in-memory cache
+        if (interaction.client.afkBreakAccess) {
+          const key = `${interaction.guild.id}-${targetUser.id}`;
+          const allowed = interaction.client.afkBreakAccess.get(key);
+          if (allowed && allowed.has(interaction.user.id)) hasAccess = true;
+        }
+
+        // If not in cache, check DB
+        if (!hasAccess && supabase) {
+          try {
+            const { data: accessData } = await supabase
+              .from('afk_break_access')
+              .select('allowed_user_id')
+              .eq('guild_id', interaction.guild.id)
+              .eq('owner_id', targetUser.id)
+              .eq('allowed_user_id', interaction.user.id)
+              .maybeSingle();
+            if (accessData) hasAccess = true;
+          } catch (err) {
+            console.error('AFK break access check error:', err.message);
+          }
+        }
+
+        if (!hasAccess) {
+          return interaction.reply({
+            content: `🔒 **${displayName}** has locked their AFK break! Only they and their allowed users can break it.\n\n💡 They can use \`/afk-break-access add @${interaction.user.username}\` to allow you.`,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+      }
+    }
+
     // Remove the AFK record
     const { error: deleteError } = await supabase
       .from('afk_users')
