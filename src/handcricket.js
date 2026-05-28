@@ -55,7 +55,7 @@ const GAME_PHASE = {
 const EMOJI_NUMBERS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣'];
 
 /* ── Match Timer Settings ── */
-const MATCH_TURN_TIMEOUT = 45; // seconds to play a number before auto-out
+const MATCH_TURN_TIMEOUT = 30; // seconds to play a number before auto-out
 const MATCH_INACTIVITY_TIMEOUT = 120; // seconds of total inactivity before game auto-ends
 
 /* ── Economy Rewards ── */

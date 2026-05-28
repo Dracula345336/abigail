@@ -160,6 +160,7 @@ module.exports = {
       const botId = 'BOT_' + userId;
       const game = new HandCricketGame(userId, botId, channelId, interaction.guild.id, { isBot: true, overs, wickets });
       game.channel = interaction.channel;
+      game.accept(); // Start toss phase immediately for bot games
       activeHCGames.set(channelId, game);
       hcPlayerMap.set(userId, channelId);
 

@@ -750,11 +750,27 @@ client.on('messageCreate', async (message) => {
 
         // Play number submission during game (1-6)
         if (hcGame.phase === HC_PHASE.PLAYING && !isNaN(num) && num >= 1 && num <= 6) {
+          const isBatting = message.author.id === hcGame.battingNow;
+          const roleLabel = isBatting ? '🏏 Batting' : '🎯 Bowling';
           const result = hcGame.submitPlayNumber(message.author.id, num);
           if (!result.success) return message.reply(result.message);
 
           if (result.message === 'waiting_for_opponent') {
-            return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**!\n\nWaiting for your opponent...\n⏱️ ${MATCH_TURN_TIMEOUT}s per ball!`).setTimestamp()] });
+            // DM the opponent that they need to choose NOW
+            const opponentId = isBatting ? hcGame.bowlingNow : hcGame.battingNow;
+            if (!opponentId?.startsWith('BOT_')) {
+              try {
+                const oppIsBatting = opponentId === hcGame.battingNow;
+                await client.users.cache.get(opponentId)?.send({
+                  embeds: [new EmbedBuilder()
+                    .setColor(0xFF8C00)
+                    .setTitle('🏏 Your Turn! Choose NOW!')
+                    .setDescription(`Your opponent has chosen their number!\n\nYou are ${oppIsBatting ? '**Batting** 🏏' : '**Bowling** 🎯'}\n\nType a number **1-6** quickly!\n⏱️ **${MATCH_TURN_TIMEOUT}s** on the clock!`)
+                    .setTimestamp()]
+                });
+              } catch (e) {}
+            }
+            return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**! (${roleLabel})\n\nWaiting for your opponent...\n⏱️ ${MATCH_TURN_TIMEOUT}s per ball!`).setTimestamp()] });
           }
 
           // Ball resolved!
@@ -814,6 +830,23 @@ client.on('messageCreate', async (message) => {
           } else {
             // Reset turn timer for next ball
             hcGame.resetTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
+
+            // DM both players to choose next number
+            for (const pid of hcGame.players) {
+              if (pid.startsWith('BOT_')) continue;
+              try {
+                const isBatsman = pid === hcGame.battingNow;
+                const isBowler = pid === hcGame.bowlingNow;
+                if (!isBatsman && !isBowler) continue;
+                await client.users.cache.get(pid)?.send({
+                  embeds: [new EmbedBuilder()
+                    .setColor(0x2ECC71)
+                    .setTitle('🏏 Next Ball!')
+                    .setDescription(`Type a number **1-6** now!\n\nYou are ${isBatsman ? '**Batting** 🏏' : '**Bowling** 🎯'}\n⏱️ **${MATCH_TURN_TIMEOUT}s** on the clock!`)
+                    .setTimestamp()]
+                });
+              } catch (e) {}
+            }
           }
           return;
         }
@@ -1628,6 +1661,7 @@ client.on('messageCreate', async (message) => {
       const botId = 'BOT_' + message.author.id; // virtual bot ID
       const game = new HandCricketGame(message.author.id, botId, message.channel.id, message.guild.id, { isBot: true, overs, wickets });
       game.channel = message.channel;
+      game.accept(); // Start toss phase immediately for bot games
       activeHCGames.set(message.channel.id, game);
       hcPlayerMap.set(message.author.id, message.channel.id);
 
