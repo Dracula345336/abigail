@@ -101,6 +101,25 @@ module.exports = {
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });
+
+    // DM the target user — tell them who broke their AFK
+    try {
+      const dmEmbed = new EmbedBuilder()
+        .setColor(0xFF69B4)
+        .setTitle('🔨 Your AFK Was Broken!')
+        .setDescription(
+          `**${interaction.member?.displayName || interaction.user.username}** broke your AFK in **${interaction.guild.name}**!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+          `┣ 📝 **Your Reason:** \`${afkData.reason}\`\n` +
+          `┣ ⏱️ **You Were Away For:** \`${timeSince(afkData.afk_time)}\`\n` +
+          `┣ 🏠 **Server:** ${interaction.guild.name}\n` +
+          `┗ 💨 **Broken By:** ${interaction.user.username}`
+        )
+        .setFooter({ text: '💕 Sweetheart Bot — AFK Notification' })
+        .setTimestamp();
+      await targetUser.send({ embeds: [dmEmbed] });
+    } catch (e) {
+      console.error(`Could not DM ${targetUser.username} about AFK break:`, e.message);
+    }
   },
 };
 
