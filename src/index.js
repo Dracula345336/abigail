@@ -59,9 +59,10 @@ const {
   activeGames, NIGHT_TIMER, DAY_TIMER, SHOOT_TIMER
 } = require('./werewolf');
 const { pick, timeSince } = require('./utils');
-const { HandCricketGame, GAME_PHASE: HC_PHASE } = require('./handcricket');
+const { HandCricketGame, GAME_PHASE: HC_PHASE, ProfileManager, EMOJI_NUMBERS, SLEDGE_MESSAGES, BOT_NAMES } = require('./handcricket');
 const activeHCGames = new Map(); // channelId → HandCricketGame
 const hcPlayerMap = new Map();  // userId → channelId (for DM routing)
+const hcProfileManager = new ProfileManager(supabase);
 
 /* ═══════════════════════════════════════════
    🐺 Werewolf — Mafia Night/Day Phase Functions
@@ -436,6 +437,59 @@ client.on('messageCreate', async (message) => {
       if (hcGame && hcGame.phase !== HC_PHASE.ENDED) {
         const num = parseInt(msgContent);
 
+        // Coin toss for single player (heads/tails)
+        if (hcGame.isBotGame && hcGame.phase === HC_PHASE.TOSS && (msgContent === 'heads' || msgContent === 'tails')) {
+          const result = hcGame.coinTossChoice(message.author.id, msgContent);
+          if (!result.success) return message.reply(result.message);
+
+          const channel = hcGame.channel;
+          if (!channel) return;
+
+          const tossEmbed = new EmbedBuilder()
+            .setColor(result.playerWon ? 0x2ECC71 : 0xE74C3C)
+            .setTitle('🪙 Coin Toss Result!')
+            .setDescription(
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `┣ 🪙 **Coin:** ${result.coinResult === 'heads' ? '👑 Heads' : '🦅 Tails'}\n` +
+              `┣ 🎯 **You chose:** ${result.playerChoice === 'heads' ? '👑 Heads' : '🦅 Tails'}\n` +
+              `┗ ${result.playerWon ? '🏆 **You won the toss!**' : '😢 **You lost the toss!**'}\n\n${result.playerWon ? 'DM me **bat** or **bowl** to choose!' : 'Bot is choosing...'}`
+            )
+            .setTimestamp();
+          await channel.send({ embeds: [tossEmbed] });
+
+          // If bot won toss, bot chooses automatically
+          if (!result.playerWon) {
+            const botChoice = hcGame.botChooseBatBowl();
+            const botChose = botChoice.battingFirst === hcGame.player2Id ? 'bat' : 'bowl';
+            const playerRole = botChose === 'bat' ? 'bowl' : 'bat';
+
+            const botChoiceEmbed = new EmbedBuilder()
+              .setColor(0xF39C12)
+              .setTitle('🤖 Bot chose to ' + botChose + '!')
+              .setDescription(
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 🤖 Bot: **${botChose === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**\n` +
+                `┣ 🏏 **You:** ${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}\n` +
+                `┗ 📨 DM me a number (1-6) to start!`
+              )
+              .setFooter({ text: '🏏 Match Started!' })
+              .setTimestamp();
+            await channel.send({ embeds: [botChoiceEmbed] });
+
+            // DM the player
+            try {
+              await message.author.send({
+                embeds: [new EmbedBuilder()
+                  .setColor(0x2ECC71)
+                  .setTitle('🏏 Match Started!')
+                  .setDescription(`You are **${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\nType a number **1-6** to play!`)
+                  .setTimestamp()]
+              });
+            } catch (e) {}
+          }
+          return;
+        }
+
         // Toss number submission (1-6)
         if (hcGame.phase === HC_PHASE.TOSS && !isNaN(num) && num >= 1 && num <= 6) {
           const result = hcGame.submitTossNumber(message.author.id, num);
@@ -543,6 +597,17 @@ client.on('messageCreate', async (message) => {
               .setFooter({ text: '🏏 Hand Cricket — GG!' })
               .setTimestamp();
             await channel.send({ embeds: [winEmbed] });
+
+            // Update profiles
+            if (hcProfileManager) {
+              for (const pid of hcGame.players) {
+                if (!pid.startsWith('BOT_')) {
+                  const summary = hcGame.getGameSummary(pid);
+                  await hcProfileManager.updateProfile(pid, summary);
+                }
+              }
+            }
+
             activeHCGames.delete(hcChannelId);
             hcPlayerMap.delete(hcGame.players[0]);
             hcPlayerMap.delete(hcGame.players[1]);
@@ -615,6 +680,16 @@ client.on('messageCreate', async (message) => {
                   .setFooter({ text: '🏏 Hand Cricket — GG!' })
                   .setTimestamp();
                 await channel.send({ embeds: [winEmbed] });
+              }
+
+              // Update profiles
+              if (hcProfileManager) {
+                for (const pid of hcGame.players) {
+                  if (!pid.startsWith('BOT_')) {
+                    const summary = hcGame.getGameSummary(pid);
+                    await hcProfileManager.updateProfile(pid, summary);
+                  }
+                }
               }
 
               activeHCGames.delete(hcChannelId);
@@ -1192,13 +1267,14 @@ client.on('messageCreate', async (message) => {
     if (cmd === 'hc.help') {
       const hcHelp = new EmbedBuilder()
         .setColor(0x2ECC71)
-        .setTitle('🏏 Hand Cricket — How to Play!')
+        .setTitle('🏏 Hand Cricket — Commands')
         .setDescription('Indian childhood classic — now on Discord!')
         .addFields(
-          { name: '🎮 Starting', value: '`hc.challenge @user` — Challenge someone\n`hc.accept` — Accept challenge\n`hc.decline` — Decline challenge\n`hc.quit` — Quit current game', inline: false },
-          { name: '🪙 Toss', value: '`hc.toss odd` or `hc.toss even` — Choose toss side\nThen DM the bot a number (1-6)\nSum odd/even decides toss winner!', inline: false },
+          { name: '🎮 Game Modes', value: '`hc.play [overs] [wickets]` — Play vs Bot\n`hc.challenge @user [overs] [wickets]` — Challenge a friend\n`hc.accept` — Accept challenge\n`hc.decline` — Decline challenge', inline: false },
+          { name: '🪙 Toss', value: '`hc.toss odd` or `hc.toss even` — Multiplayer toss\nDM `heads` or `tails` — Single player toss\nThen DM the bot a number (1-6)', inline: false },
           { name: '🏏 Playing', value: 'DM the bot a number (1-6) each ball\n🏏 Batsman & Bowler both choose secretly\n💀 Same number = OUT!\n✅ Different = Batsman scores that many runs', inline: false },
-          { name: '📏 Format', value: '6 balls per innings, 2 wickets = all out\n2 innings each — highest score wins!', inline: false },
+          { name: '📊 Stats & Fun', value: '`hc.profile` — Your stats\n`hc.profile @user` — Someone\'s stats\n`hc.score` — Current match score\n`hc.sledge @user` — Roast your friend 🔥', inline: false },
+          { name: '📖 Other', value: '`hc.howtoplay` — Detailed guide\n`hc.quit` — Quit current game', inline: false },
         )
         .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
         .setTimestamp();
@@ -1231,7 +1307,12 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 There\'s already a game in this channel! Wait for it to finish.').setTimestamp()] });
       }
 
-      const game = new HandCricketGame(message.author.id, target.id, message.channel.id, message.guild.id);
+      const overs = parseInt(args[2]) || 1;
+      const wickets = parseInt(args[3]) || 2;
+      if (overs < 1 || overs > 10) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Overs must be 1-10!').setTimestamp()] });
+      if (wickets < 1 || wickets > 10) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Wickets must be 1-10!').setTimestamp()] });
+
+      const game = new HandCricketGame(message.author.id, target.id, message.channel.id, message.guild.id, { overs, wickets });
       game.channel = message.channel;
       activeHCGames.set(message.channel.id, game);
       hcPlayerMap.set(message.author.id, message.channel.id);
@@ -1241,7 +1322,7 @@ client.on('messageCreate', async (message) => {
         .setColor(0xFFD700)
         .setTitle('🏏 Hand Cricket Challenge!')
         .setDescription(
-          `**${message.author.username}** challenged **${target.username}** to Hand Cricket!\n\n━━━━━━━━━━━━━━━━━━━\n┣ ✅ **${target.username}**: Type \`hc.accept\`\n┣ ❌ **${target.username}**: Type \`hc.decline\`\n┗ ⏰ Waiting for response...`
+          `**${message.author.username}** challenged **${target.username}** to Hand Cricket!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📏 **${overs} over${overs > 1 ? 's' : ''}**, **${wickets} wicket${wickets > 1 ? 's' : ''}**\n┣ ✅ **${target.username}**: Type \`hc.accept\`\n┣ ❌ **${target.username}**: Type \`hc.decline\`\n┗ ⏰ Waiting for response...`
         )
         .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
         .setTimestamp();
@@ -1392,6 +1473,118 @@ client.on('messageCreate', async (message) => {
       hcPlayerMap.delete(game.players[1]);
 
       return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🏏 Game Quit!').setDescription(`**${message.author.username}** quit the game! ${winnerName ? `**${winnerName}** wins!` : ''}`).setTimestamp()] });
+    }
+
+    /* ── hc.play — Single player vs Bot ── */
+    if (cmd === 'hc.play') {
+      // Check if already in game
+      if (hcPlayerMap.has(message.author.id)) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 You are already in a game! Use `hc.quit` first.').setTimestamp()] });
+      }
+      if (activeHCGames.has(message.channel.id)) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🚫 There\'s already a game in this channel!').setTimestamp()] });
+      }
+
+      // Parse overs/wickets: hc.play 2 3 = 2 overs, 3 wickets
+      const overs = parseInt(args[1]) || 1;
+      const wickets = parseInt(args[2]) || 2;
+      if (overs < 1 || overs > 10) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Overs must be 1-10!').setTimestamp()] });
+      if (wickets < 1 || wickets > 10) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Wickets must be 1-10!').setTimestamp()] });
+
+      const botId = 'BOT_' + message.author.id; // virtual bot ID
+      const game = new HandCricketGame(message.author.id, botId, message.channel.id, message.guild.id, { isBot: true, overs, wickets });
+      game.channel = message.channel;
+      activeHCGames.set(message.channel.id, game);
+      hcPlayerMap.set(message.author.id, message.channel.id);
+
+      const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+
+      const playEmbed = new EmbedBuilder()
+        .setColor(0x2ECC71)
+        .setTitle('🏏 Single Player — vs Bot!')
+        .setDescription(
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `┣ 🏏 **You** vs **${botName}**\n` +
+          `┣ 📏 **${overs} over${overs > 1 ? 's' : ''}**, **${wickets} wicket${wickets > 1 ? 's' : ''}**\n` +
+          `┣ 🪙 **Toss Time!**\n` +
+          `┗ DM me **heads** or **tails** for the coin toss!`
+        )
+        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+        .setTimestamp();
+      return message.reply({ embeds: [playEmbed] });
+    }
+
+    /* ── hc.profile ── */
+    if (cmd === 'hc.profile') {
+      const targetUser = message.mentions.users.first() || message.author;
+      const profile = await hcProfileManager.getOrCreateProfile(targetUser.id, targetUser.username);
+      if (!profile) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Profile not available (database issue).').setTimestamp()] });
+      }
+      const winRate = profile.games_played > 0 ? ((profile.games_won / profile.games_played) * 100).toFixed(1) : '0.0';
+      const avgRuns = profile.games_played > 0 ? (profile.total_runs / profile.games_played).toFixed(1) : '0.0';
+      const strikeRate = profile.total_balls > 0 ? ((profile.total_runs / profile.total_balls) * 100).toFixed(1) : '0.0';
+
+      const profileEmbed = new EmbedBuilder()
+        .setColor(0xFFD700)
+        .setAuthor({ name: `${targetUser.username}'s Profile`, iconURL: targetUser.displayAvatarURL({ dynamic: true }) })
+        .setTitle('🏏 Hand Cricket Stats')
+        .setDescription(
+          `━━━━━━━━━━━━━━━━━━━\n` +
+          `┣ 🎮 **Games:** ${profile.games_played}\n` +
+          `┣ 🏆 **Wins:** ${profile.games_won}\n` +
+          `┣ 📊 **Win Rate:** ${winRate}%\n` +
+          `┣ 🏏 **Total Runs:** ${profile.total_runs}\n` +
+          `┣ 📈 **Avg Runs:** ${avgRuns}\n` +
+          `┣ 💥 **Highest Score:** ${profile.highest_score}\n` +
+          `┣ 🔥 **Strike Rate:** ${strikeRate}\n` +
+          `┣ 🎯 **Total Wickets:** ${profile.total_wickets}\n` +
+          `┣ 4️⃣ **Fours:** ${profile.total_fours}\n` +
+          `┗ 6️⃣ **Sixes:** ${profile.total_sixes}`
+        )
+        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }))
+        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+        .setTimestamp();
+      return message.reply({ embeds: [profileEmbed] });
+    }
+
+    /* ── hc.sledge ── */
+    if (cmd === 'hc.sledge') {
+      const target = message.mentions.users.first();
+      if (!target) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🏏 Mention someone to sledge! `hc.sledge @user`').setTimestamp()] });
+      if (target.id === message.author.id) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('🤦 You can\'t sledge yourself!').setTimestamp()] });
+
+      const sledge = SLEDGE_MESSAGES[Math.floor(Math.random() * SLEDGE_MESSAGES.length)]
+        .replace(/{user}/g, message.author.username)
+        .replace(/{target}/g, target.username);
+
+      const sledgeEmbed = new EmbedBuilder()
+        .setColor(0xE74C3C)
+        .setTitle('🔥 SLEDGE!')
+        .setDescription(sledge)
+        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+        .setTimestamp();
+      return message.reply({ embeds: [sledgeEmbed] });
+    }
+
+    /* ── hc.howtoplay ── */
+    if (cmd === 'hc.howtoplay') {
+      const guideEmbed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle('🏏 Hand Cricket — Complete Guide')
+        .setDescription('Indian childhood classic — now on Discord!')
+        .addFields(
+          { name: '🎮 Game Modes', value: '`hc.play [overs] [wickets]` — Play vs Bot (default: 1 over, 2 wickets)\n`hc.challenge @user` — Challenge a friend\n`hc.accept` / `hc.decline` — Respond to challenge', inline: false },
+          { name: '🪙 Toss (Single Player)', value: 'DM the bot `heads` or `tails`\nCoin flip decides who wins the toss\nWinner chooses to bat or bowl', inline: false },
+          { name: '🪙 Toss (Multiplayer)', value: '`hc.toss odd` or `hc.toss even` in channel\nThen DM the bot a number (1-6)\nSum odd/even decides toss winner!\nWinner DMs `bat` or `bowl`', inline: false },
+          { name: '🏏 Playing', value: 'DM the bot a number (1-6) each ball\n🏏 Batsman & Bowler both choose secretly\n💀 Same number = OUT!\n✅ Different = Batsman scores that many runs', inline: false },
+          { name: '📏 Scoring', value: '1️⃣ = 1 run  ·  2️⃣ = 2 runs  ·  3️⃣ = 3 runs\n4️⃣ = 4 runs (FOUR!)  ·  5️⃣ = 5 runs  ·  6️⃣ = 6 runs (SIXER!)\nEach innings = overs × 6 balls\nAll wickets down = all out!', inline: false },
+          { name: '🏆 Winning', value: '2 innings each — highest score wins!\nIn 2nd innings, if chaser passes target = instant win!\nEqual scores = TIE', inline: false },
+          { name: '📊 Other Commands', value: '`hc.profile` — Your stats\n`hc.profile @user` — Someone\'s stats\n`hc.score` — Current match score\n`hc.sledge @user` — Roast your friend 🔥\n`hc.quit` — Quit current game', inline: false },
+        )
+        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
+        .setTimestamp();
+      return message.reply({ embeds: [guideEmbed] });
     }
   }
 
