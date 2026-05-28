@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const { pick } = require('../utils');
 const { AFK_SET_MESSAGES, AFK_BREAK_MESSAGES } = require('../messages');
 
@@ -108,20 +108,24 @@ module.exports = {
 
     // Add AFK role + Set [AFK] nickname
     const isOwner = interaction.guild.ownerId === interaction.user.id;
+    const botCanManageNicknames = interaction.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+    const botCanManageRoles = interaction.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles);
+
     const afkRole = await getAfkRole(interaction.guild);
-    if (afkRole && member) {
+    if (afkRole && member && botCanManageRoles) {
       if (!member.roles.cache.has(afkRole.id)) {
         try { await member.roles.add(afkRole, 'User went AFK'); }
-        catch (err) { console.error('Could not add AFK role:', err.message); }
+        catch (err) { /* silently skip */ }
       }
     }
 
     // Skip nickname for server owner — Discord doesn't allow it
-    if (member && !isOwner) {
+    // Also skip if bot lacks ManageNicknames permission
+    if (member && !isOwner && botCanManageNicknames) {
       try {
         const afkNick = getAfkNickname(member.nickname, interaction.user.username);
         await member.setNickname(afkNick, 'User went AFK');
-      } catch (err) { console.error('Could not set AFK nickname:', err.message); }
+      } catch (err) { /* silently skip — hierarchy issue */ }
     }
 
     const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${reason}\`\n┗ ⏱️ **Went away:** <t:${Math.floor(Date.now() / 1000)}:R>`;

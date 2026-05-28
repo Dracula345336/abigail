@@ -21,6 +21,7 @@ const {
   Events,
   REST,
   Routes,
+  PermissionFlagsBits,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -1303,15 +1304,18 @@ client.on('messageCreate', async (message) => {
       .setTimestamp();
 
     const isOwner = message.guild.ownerId === message.author.id;
+    const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+    const botCanManageRoles = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles);
+
     const afkRole = await getAfkRole(message.guild);
-    if (afkRole && message.member && !message.member.roles.cache.has(afkRole.id)) {
-      try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { console.error('Could not add AFK role:', e.message); }
+    if (afkRole && message.member && botCanManageRoles && !message.member.roles.cache.has(afkRole.id)) {
+      try { await message.member.roles.add(afkRole, 'User went AFK'); } catch (e) { /* silently skip */ }
     }
-    if (message.member && !isOwner) {
+    if (message.member && !isOwner && botCanManageNicknames) {
       try {
         const afkNick = getAfkNickname(message.member.nickname, message.author.username);
         await message.member.setNickname(afkNick, 'User went AFK');
-      } catch (e) { console.error('Could not set AFK nickname:', e.message); }
+      } catch (e) { /* silently skip — hierarchy issue */ }
     }
 
     return message.reply({ embeds: [embed] }).catch(console.error);
@@ -1343,15 +1347,18 @@ client.on('messageCreate', async (message) => {
       await message.reply({ embeds: [embed] }).catch(console.error);
 
       const isReturnOwner = message.guild.ownerId === message.author.id;
+      const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+      const botCanManageRoles = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles);
+
       const afkRoleRemove = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
-      if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id)) {
-        try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
+      if (afkRoleRemove && message.member?.roles.cache.has(afkRoleRemove.id) && botCanManageRoles) {
+        try { await message.member.roles.remove(afkRoleRemove, 'User returned from AFK'); } catch (e) { /* silently skip */ }
       }
-      if (message.member && !isReturnOwner) {
+      if (message.member && !isReturnOwner && botCanManageNicknames) {
         try {
           const normalNick = getNormalNickname(message.member.nickname, message.author.username);
           await message.member.setNickname(normalNick, 'User returned from AFK');
-        } catch (e) { console.error('Could not remove AFK nickname:', e.message); }
+        } catch (e) { /* silently skip — hierarchy issue */ }
       }
       await supabase.from('afk_users').delete().eq('user_id', message.author.id).eq('guild_id', message.guild.id);
     }

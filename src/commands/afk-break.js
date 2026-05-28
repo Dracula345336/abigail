@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 
 const AFK_ROLE_NAME = 'AFK';
 
@@ -142,19 +142,25 @@ module.exports = {
     }
 
     // Remove AFK role from target member
+    const botCanManageNicknames = interaction.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+    const botCanManageRoles = interaction.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles);
+
     if (targetMember) {
-      const afkRole = interaction.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
-      if (afkRole && targetMember.roles.cache.has(afkRole.id)) {
-        try { await targetMember.roles.remove(afkRole, 'AFK broken by another user'); } catch (e) { console.error('Could not remove AFK role:', e.message); }
+      if (botCanManageRoles) {
+        const afkRole = interaction.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+        if (afkRole && targetMember.roles.cache.has(afkRole.id)) {
+          try { await targetMember.roles.remove(afkRole, 'AFK broken by another user'); } catch (e) { /* silently skip */ }
+        }
       }
 
       // Skip nickname for server owner — Discord doesn't allow it
+      // Also skip if bot lacks ManageNicknames permission
       const isTargetOwner = interaction.guild.ownerId === targetUser.id;
-      if (!isTargetOwner) {
+      if (!isTargetOwner && botCanManageNicknames) {
         try {
           const normalNick = getNormalNickname(targetMember.nickname, targetUser.username);
           await targetMember.setNickname(normalNick, 'AFK broken — nickname restored');
-        } catch (e) { console.error('Could not restore nickname:', e.message); }
+        } catch (e) { /* silently skip — hierarchy issue */ }
       }
     }
 
