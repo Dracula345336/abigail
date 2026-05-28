@@ -77,17 +77,19 @@ CREATE TABLE IF NOT EXISTS afk_break_access_config (
 
 -- 8. Create hc_profiles table (Hand Cricket player stats)
 CREATE TABLE IF NOT EXISTS hc_profiles (
-  user_id        TEXT NOT NULL PRIMARY KEY,
-  username       TEXT,
-  games_played   INTEGER NOT NULL DEFAULT 0,
-  games_won      INTEGER NOT NULL DEFAULT 0,
-  total_runs     INTEGER NOT NULL DEFAULT 0,
-  total_wickets  INTEGER NOT NULL DEFAULT 0,
-  highest_score  INTEGER NOT NULL DEFAULT 0,
-  total_balls    INTEGER NOT NULL DEFAULT 0,
-  total_fours    INTEGER NOT NULL DEFAULT 0,
-  total_sixes    INTEGER NOT NULL DEFAULT 0,
-  created_at     TIMESTAMPTZ DEFAULT NOW()
+  user_id          TEXT NOT NULL PRIMARY KEY,
+  username         TEXT,
+  games_played     INTEGER NOT NULL DEFAULT 0,
+  games_won        INTEGER NOT NULL DEFAULT 0,
+  total_runs       INTEGER NOT NULL DEFAULT 0,
+  total_wickets    INTEGER NOT NULL DEFAULT 0,
+  highest_score    INTEGER NOT NULL DEFAULT 0,
+  total_balls      INTEGER NOT NULL DEFAULT 0,
+  total_fours      INTEGER NOT NULL DEFAULT 0,
+  total_sixes      INTEGER NOT NULL DEFAULT 0,
+  win_streak       INTEGER NOT NULL DEFAULT 0,
+  best_win_streak  INTEGER NOT NULL DEFAULT 0,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 9. Disable RLS on all tables
