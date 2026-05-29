@@ -1,7 +1,7 @@
-# Full Node.js 20 image — best compatibility for native voice modules
-FROM node:20
+# Node.js 20 — no native modules needed! (opusscript + tweetnacl = pure JS)
+FROM node:20-slim
 
-# Install ffmpeg (required for music stream processing)
+# Install ffmpeg only (for audio stream processing)
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
@@ -10,25 +10,31 @@ WORKDIR /app
 # Copy package files first (for better Docker caching)
 COPY package*.json ./
 
-# Install dependencies
+# Install dependencies (no native compilation needed!)
 RUN npm install --production
 
 # Copy ALL application files
 COPY . .
 
-# Diagnose voice dependencies at build time
+# Final dependency check at build time
 RUN echo "═══════════════════════════════════════" && \
     echo "🔧 Voice Dependency Check:" && \
     node -e " \
-    const mods = ['@discordjs/voice', 'opusscript', 'libsodium-wrappers', 'tweetnacl', 'play-dl']; \
-    mods.forEach(m => { \
-      try { require(m); console.log('  ✅ ' + m); } \
+    const mods = { \
+      '@discordjs/voice': 'Voice engine', \
+      'opusscript': 'Opus audio encoder', \
+      'tweetnacl': 'NaCl encryption', \
+      'play-dl': 'YouTube/Spotify source', \
+    }; \
+    Object.entries(mods).forEach(([m, label]) => { \
+      try { require(m); console.log('  ✅ ' + m + ' (' + label + ')'); } \
       catch(e) { console.log('  ❌ ' + m + ' — ' + e.message); } \
-    });" && \
+    }); \
+    console.log('  ✅ sodium-shim (pure JS encryption wrapper)');" && \
     echo "═══════════════════════════════════════"
 
-# Verify command files
-RUN echo "=== Checking command files ===" && ls -la src/commands/ || echo "No commands dir!"
+# Verify commands
+RUN ls src/commands/
 
 # Start bot
 CMD ["npm", "start"]

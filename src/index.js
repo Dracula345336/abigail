@@ -32,6 +32,8 @@ const path = require('path');
 /* ═══════════════════════════════════════════
    🎵 Music Engine Import
    ═══════════════════════════════════════════ */
+// Load sodium shim FIRST — provides pure JS encryption for voice
+require('./sodium-shim');
 const { initMusic, handleMusicButton, musicState, MUSIC_COLORS, MUSIC_EMOJIS } = require('./music');
 
 /* ═══════════════════════════════════════════

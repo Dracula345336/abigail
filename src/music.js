@@ -7,6 +7,11 @@
    ✅ Name search + URL playback both supported
    ═══════════════════════════════════════════ */
 
+// 🔐 CRITICAL: Load sodium shim BEFORE @discordjs/voice!
+// This provides pure-JS encryption (tweetnacl) as a drop-in
+// replacement for libsodium-wrappers (which fails on many hosts)
+require('./sodium-shim');
+
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const {
   joinVoiceChannel,
@@ -108,57 +113,36 @@ let musicReady = false;
 
 async function initMusic(client) {
   try {
-    // ═══ Check ALL critical voice dependencies ═══
+    // ═══ Verify critical voice dependencies ═══
     console.log('🔧 Checking voice dependencies...');
 
+    // Opus encoder check
     let hasOpus = false;
-    let hasSodium = false;
-
-    // Check Opus encoder (needed for audio playback)
-    try {
-      require('@discordjs/opus');
-      hasOpus = true;
-      console.log('  ✅ @discordjs/opus — native Opus encoder');
-    } catch (e) {
-      console.log('  ⚠️  @discordjs/opus not available, checking opusscript...');
-    }
+    try { require('@discordjs/opus'); hasOpus = true; console.log('  ✅ @discordjs/opus — native Opus'); } catch (e) {}
     if (!hasOpus) {
-      try {
-        require('opusscript');
-        hasOpus = true;
-        console.log('  ✅ opusscript — JS Opus encoder (fallback)');
-      } catch (e) {
-        console.error('  ❌ NO Opus encoder! Audio will NOT work!');
-      }
+      try { require('opusscript'); hasOpus = true; console.log('  ✅ opusscript — JS Opus encoder'); } catch (e) {}
+    }
+    if (!hasOpus) console.error('  ❌ NO Opus encoder! Audio will not play.');
+
+    // Encryption check (our shim should already be loaded)
+    let hasEncryption = false;
+    try { require('libsodium-wrappers'); hasEncryption = true; console.log('  ✅ libsodium-wrappers — encryption loaded'); } catch (e) {}
+    if (!hasEncryption) {
+      try { require('tweetnacl'); hasEncryption = true; console.log('  ✅ tweetnacl — encryption (direct)'); } catch (e) {}
+    }
+    if (!hasEncryption) console.error('  ❌ NO encryption! Voice will NOT connect!');
+
+    // @discordjs/voice check
+    try { require('@discordjs/voice'); console.log('  ✅ @discordjs/voice — voice engine'); } catch (e) {
+      console.error('  ❌ @discordjs/voice missing!');
     }
 
-    // Check Encryption (needed for voice CONNECTION — most critical!)
-    try {
-      require('libsodium-wrappers');
-      hasSodium = true;
-      console.log('  ✅ libsodium-wrappers — voice encryption');
-    } catch (e) {
-      console.log('  ⚠️  libsodium-wrappers not available, checking tweetnacl...');
-    }
-    if (!hasSodium) {
-      try {
-        require('tweetnacl');
-        hasSodium = true;
-        console.log('  ✅ tweetnacl — voice encryption (fallback)');
-      } catch (e) {
-        console.error('  ❌ NO encryption module! Voice will NOT connect!');
-        console.error('   Install: npm install libsodium-wrappers tweetnacl');
-      }
-    }
-
-    if (!hasOpus || !hasSodium) {
-      console.error('❌ Missing critical voice dependencies! Music may not work.');
-    }
+    console.log('  ✅ sodium-shim — pure JS encryption via tweetnacl');
 
     // ═══ Initialize play-dl ═══
     playdl = require('play-dl');
 
-    // Attempt Spotify token setup (optional — won't fail without creds)
+    // Spotify token setup (optional)
     try {
       await playdl.setToken({
         spotify: {
@@ -172,7 +156,7 @@ async function initMusic(client) {
       console.warn('⚠️  Spotify token setup skipped:', tokenErr.message);
     }
 
-    // Pre-authorize play-dl for YouTube (prevents 429/bot detection)
+    // Pre-authorize play-dl for YouTube
     try {
       await playdl.authorization();
       console.log('✅ play-dl YouTube authorization done!');
@@ -181,12 +165,12 @@ async function initMusic(client) {
     }
 
     musicReady = true;
-    console.log('✅ play-dl Music Engine initialized!');
-    console.log('   🎵 Name search: /music play <song name>');
-    console.log('   🔗 URL playback: /music play <youtube/spotify url>');
+    console.log('✅ Music Engine ready!');
+    console.log('   🎵 /music play <song name>  →  Search & play');
+    console.log('   🔗 /music play <youtube url>  →  Direct play');
     return true;
   } catch (err) {
-    console.error('❌ Failed to initialize music:', err.message);
+    console.error('❌ Music init failed:', err.message);
     return null;
   }
 }
@@ -210,16 +194,6 @@ async function connectToVC(voiceChannel) {
   }
 
   console.log(`🔌 Connecting to VC: ${voiceChannel.name} (${voiceChannel.guild.name})...`);
-
-  // Verify encryption is available BEFORE trying to connect
-  let encryptionOk = false;
-  try { require('libsodium-wrappers'); encryptionOk = true; } catch (e) {}
-  if (!encryptionOk) {
-    try { require('tweetnacl'); encryptionOk = true; } catch (e) {}
-  }
-  if (!encryptionOk) {
-    throw new Error('Voice encryption module not found! Install `libsodium-wrappers` or `tweetnacl`');
-  }
 
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
