@@ -22,6 +22,7 @@ const {
   getVoiceConnection,
   entersState,
   StreamType,
+  generateDependencyReport,
 } = require('@discordjs/voice');
 
 /* ═══════════════════════════════════════════
@@ -124,20 +125,50 @@ async function initMusic(client) {
     }
     if (!hasOpus) console.error('  ❌ NO Opus encoder! Audio will not play.');
 
-    // Encryption check (our shim should already be loaded)
+    // Encryption check — verify ACTUAL methods exist (not just module loads)
     let hasEncryption = false;
-    try { require('libsodium-wrappers'); hasEncryption = true; console.log('  ✅ libsodium-wrappers — encryption loaded'); } catch (e) {}
+    try {
+      const sodium = require('libsodium-wrappers');
+      if (sodium.crypto_secretbox_open_easy && sodium.crypto_secretbox_easy && sodium.randombytes_buf) {
+        hasEncryption = true;
+        console.log('  ✅ libsodium-wrappers — encryption loaded + API verified');
+        console.log('     crypto_secretbox_open_easy:', typeof sodium.crypto_secretbox_open_easy);
+        console.log('     crypto_secretbox_easy:', typeof sodium.crypto_secretbox_easy);
+        console.log('     randombytes_buf:', typeof sodium.randombytes_buf);
+        console.log('     ready:', sodium.ready ? 'Promise ✅' : 'missing ❌');
+      } else {
+        console.error('  ❌ libsodium-wrappers loaded but WRONG API!');
+        console.error('     crypto_secretbox_open_easy:', typeof sodium.crypto_secretbox_open_easy);
+        console.error('     crypto_secretbox_easy:', typeof sodium.crypto_secretbox_easy);
+        console.error('     randombytes_buf:', typeof sodium.randombytes_buf);
+      }
+    } catch (e) {
+      console.warn('  ⚠️  libsodium-wrappers not found:', e.message);
+    }
     if (!hasEncryption) {
-      try { require('tweetnacl'); hasEncryption = true; console.log('  ✅ tweetnacl — encryption (direct)'); } catch (e) {}
+      try {
+        require('tweetnacl');
+        hasEncryption = true;
+        console.log('  ✅ tweetnacl — encryption (direct fallback)');
+      } catch (e) {}
     }
     if (!hasEncryption) console.error('  ❌ NO encryption! Voice will NOT connect!');
 
     // @discordjs/voice check
-    try { require('@discordjs/voice'); console.log('  ✅ @discordjs/voice — voice engine'); } catch (e) {
+    try {
+      const voice = require('@discordjs/voice');
+      console.log('  ✅ @discordjs/voice — voice engine');
+      // Generate and log the dependency report for debugging
+      try {
+        const report = voice.generateDependencyReport();
+        console.log('  📋 Dependency Report:');
+        report.split('\n').forEach(line => console.log('     ' + line));
+      } catch (e) {}
+    } catch (e) {
       console.error('  ❌ @discordjs/voice missing!');
     }
 
-    console.log('  ✅ sodium-shim — pure JS encryption via tweetnacl');
+    console.log('  ✅ sodium-shim v2 — correct libsodium-wrappers API via tweetnacl');
 
     // ═══ Initialize play-dl ═══
     playdl = require('play-dl');
@@ -229,10 +260,8 @@ async function connectToVC(voiceChannel) {
   });
 
   connection.on('debug', (msg) => {
-    // Only log important debug messages (not every packet)
-    if (msg.includes('connection') || msg.includes('state') || msg.includes('UDP') || msg.includes('endpoint')) {
-      console.log(`🔍 Voice debug: ${msg}`);
-    }
+    // Log ALL debug messages for first connections — needed to diagnose signalling issues
+    console.log(`🔍 Voice debug: ${msg}`);
   });
 
   // Wait for Ready state with timeout
@@ -243,6 +272,12 @@ async function connectToVC(voiceChannel) {
   } catch (err) {
     const finalState = connection.state.status;
     console.error(`❌ Voice connection FAILED — stuck at: ${finalState}`);
+
+    // Log the full dependency report to help diagnose
+    try {
+      console.error('📋 Dependency Report on failure:');
+      console.error(generateDependencyReport());
+    } catch (e) {}
 
     // Try to get more info from the connection state
     if (finalState === VoiceConnectionStatus.Signalling) {

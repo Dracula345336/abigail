@@ -1,80 +1,86 @@
 /* ═══════════════════════════════════════════
-   🔐 Pure JS Sodium Shim — Wraps tweetnacl as libsodium-wrappers
+   🔐 Sodium Shim v2 — Proper libsodium-wrappers API
    ═══════════════════════════════════════════
-   @discordjs/voice needs libsodium-wrappers for voice encryption.
-   But libsodium-wrappers is a native module that fails on many hosts.
+   @discordjs/voice checks encryption libs in this order:
+     1. sodium-native
+     2. sodium
+     3. libsodium-wrappers  ← we intercept this
+     4. tweetnacl           ← fallback
    
-   This shim provides the EXACT same API using pure-JS tweetnacl.
-   No native compilation needed. Works on ANY server. Guaranteed.
+   It calls: libsodium-wrappers.crypto_secretbox_open_easy()
+             libsodium-wrappers.crypto_secretbox_easy()
+             libsodium-wrappers.randombytes_buf()
    
-   Load this BEFORE @discordjs/voice in your code:
-     require('./sodium-shim');  // ← MUST be first!
-     const { joinVoiceChannel } = require('@discordjs/voice');
+   Previous shim was BROKEN — it exposed crypto_secretbox / 
+   crypto_secretbox_open (wrong API!) which made @discordjs/voice
+   set encryption methods to undefined → voice stuck at signalling.
+   
+   This shim provides the CORRECT libsodium-wrappers API using
+   tweetnacl as the underlying crypto engine. No native deps needed.
    ═══════════════════════════════════════════ */
 
 const nacl = require('tweetnacl');
 
-const KEYBYTES = nacl.secretbox.keyLength;   // 32
-const NONCEBYTES = nacl.secretbox.nonceLength; // 24
-
 const api = {
-  crypto_secretbox_KEYBYTES: KEYBYTES,
-  crypto_secretbox_NONCEBYTES: NONCEBYTES,
-  crypto_secretbox_MACBYTES: nacl.secretbox.overheadLength, // 16
+  // ═══ Constants that @discordjs/voice checks ═══
+  crypto_secretbox_KEYBYTES: nacl.secretbox.keyLength,     // 32
+  crypto_secretbox_NONCEBYTES: nacl.secretbox.nonceLength, // 24
+  crypto_box_MACBYTES: nacl.secretbox.overheadLength,      // 16
 
   /**
-   * Encrypt a message using secret-key authenticated encryption
-   * @param {Buffer} message - Plaintext message
+   * Decrypt a message (libsodium-wrappers API)
+   * @param {Buffer} ciphertext - Encrypted data (MAC + plaintext)
    * @param {Buffer} nonce - 24-byte nonce
-   * @param {Buffer} key - 32-byte key
-   * @returns {Buffer} Ciphertext with MAC prepended
+   * @param {Uint8Array} secretKey - 32-byte key
+   * @returns {Buffer|null} Decrypted data, or null on failure
    */
-  crypto_secretbox(message, nonce, key) {
-    const msgU8 = uint8Array(message);
-    const nonceU8 = uint8Array(nonce);
-    const keyU8 = uint8Array(key);
+  crypto_secretbox_open_easy(ciphertext, nonce, secretKey) {
+    const cipherU8 = toUint8Array(ciphertext);
+    const nonceU8 = toUint8Array(nonce);
+    const keyU8 = toUint8Array(secretKey);
+
+    const decrypted = nacl.secretbox.open(cipherU8, nonceU8, keyU8);
+    if (!decrypted) return null;
+    return Buffer.from(decrypted);
+  },
+
+  /**
+   * Encrypt a message (libsodium-wrappers API)
+   * @param {Buffer} message - Plaintext data
+   * @param {Buffer} nonce - 24-byte nonce
+   * @param {Uint8Array} secretKey - 32-byte key
+   * @returns {Buffer} Encrypted data (MAC + ciphertext)
+   */
+  crypto_secretbox_easy(message, nonce, secretKey) {
+    const msgU8 = toUint8Array(message);
+    const nonceU8 = toUint8Array(nonce);
+    const keyU8 = toUint8Array(secretKey);
 
     const encrypted = nacl.secretbox(msgU8, nonceU8, keyU8);
     if (!encrypted) {
-      throw new Error('crypto_secretbox: encryption failed');
+      throw new Error('crypto_secretbox_easy: encryption failed');
     }
     return Buffer.from(encrypted);
   },
 
   /**
-   * Decrypt a message using secret-key authenticated encryption
-   * @param {Buffer} ciphertext - Ciphertext with MAC prepended
-   * @param {Buffer} nonce - 24-byte nonce
-   * @param {Buffer} key - 32-byte key
-   * @returns {Buffer|false} Decrypted plaintext, or false on failure
+   * Generate random bytes
+   * @param {Buffer} buffer - Buffer to fill with random bytes
    */
-  crypto_secretbox_open(ciphertext, nonce, key) {
-    const cipherU8 = uint8Array(ciphertext);
-    const nonceU8 = uint8Array(nonce);
-    const keyU8 = uint8Array(key);
-
-    const decrypted = nacl.secretbox.open(cipherU8, nonceU8, keyU8);
-    if (!decrypted) return false;
-    return Buffer.from(decrypted);
+  randombytes_buf(buffer) {
+    const bytes = nacl.randomBytes(buffer.length);
+    buffer.set(bytes);
   },
 
-  /**
-   * Generate a random buffer of specified length
-   * @param {number} length - Number of random bytes
-   * @returns {Buffer} Random bytes
-   */
-  randombytes_buf(length) {
-    return Buffer.from(nacl.randomBytes(length));
-  },
-
-  // Promise-based ready indicator (libsodium-wrappers compatibility)
+  // ═══ Promise-based ready (libsodium-wrappers compatibility) ═══
+  // @discordjs/voice does: if (lib.ready) await lib.ready
   ready: Promise.resolve(true),
 };
 
 /**
  * Convert Buffer/Uint8Array to Uint8Array
  */
-function uint8Array(buf) {
+function toUint8Array(buf) {
   if (buf instanceof Uint8Array) return buf;
   if (Buffer.isBuffer(buf)) return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
   return new Uint8Array(buf);
@@ -82,44 +88,54 @@ function uint8Array(buf) {
 
 // ═══════════════════════════════════════════
 // INJECT INTO REQUIRE CACHE
-// This makes `require('libsodium-wrappers')` return our shim
+// ═══════════════════════════════════════════
+// This makes require('libsodium-wrappers') return our shim
 // @discordjs/voice will find it and use it for voice encryption
 // ═══════════════════════════════════════════
 
 const Module = require('module');
-const originalResolve = Module._resolveFilename;
 
-// Only patch once
-if (!global.__sodiumShimInstalled) {
-  global.__sodiumShimInstalled = true;
+if (!global.__sodiumShimV2Installed) {
+  global.__sodiumShimV2Installed = true;
 
+  // Store original resolve
+  const originalResolve = Module._resolveFilename;
+
+  // Patch module resolution
   Module._resolveFilename = function (request, parent, isMain, options) {
     // Intercept libsodium-wrappers and libsodium-wrappers-sumo
     if (request === 'libsodium-wrappers' || request === 'libsodium-wrappers-sumo') {
-      // Return a dummy path — we'll provide the module from cache
-      return request;
+      // Return our shim's path instead of looking for the real package
+      return require.resolve(__filename);
     }
     return originalResolve.call(this, request, parent, isMain, options);
   };
 
-  // Inject our shim into the require cache
-  const shimPath = 'libsodium-wrappers';
+  // Inject into require cache so require() returns our api object directly
+  const shimPath = require.resolve(__filename);
   const shimModule = new Module(shimPath, null);
   shimModule.filename = shimPath;
   shimModule.exports = api;
   shimModule.loaded = true;
   require.cache[shimPath] = shimModule;
 
-  // Also inject for libsodium-wrappers-sumo just in case
-  const sumoPath = 'libsodium-wrappers-sumo';
-  const sumoModule = new Module(sumoPath, null);
-  sumoModule.filename = sumoPath;
-  sumoModule.exports = api;
-  sumoModule.loaded = true;
-  require.cache[sumoPath] = sumoModule;
+  // Also pre-cache for the bare name (belt & suspenders)
+  const barePaths = ['libsodium-wrappers', 'libsodium-wrappers-sumo'];
+  for (const p of barePaths) {
+    if (!require.cache[p]) {
+      const m = new Module(p, null);
+      m.filename = p;
+      m.exports = api;
+      m.loaded = true;
+      require.cache[p] = m;
+    }
+  }
 
-  console.log('✅ Sodium shim installed — pure JS encryption via tweetnacl');
-  console.log('   (libsodium-wrappers intercepted → tweetnacl)');
+  console.log('✅ Sodium shim v2 installed — correct libsodium-wrappers API via tweetnacl');
+  console.log('   crypto_secretbox_open_easy ✅');
+  console.log('   crypto_secretbox_easy ✅');
+  console.log('   randombytes_buf ✅');
+  console.log('   ready (Promise) ✅');
 }
 
 module.exports = api;
