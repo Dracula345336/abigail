@@ -22,6 +22,9 @@ const {
   REST,
   Routes,
   PermissionFlagsBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -61,15 +64,20 @@ const {
 const { pick, timeSince } = require('./utils');
 const {
   HandCricketGame, GAME_PHASE: HC_PHASE, ProfileManager,
+  TournamentManager, LobbyManager,
   EMOJI_NUMBERS, SLEDGE_MESSAGES, BOT_PROFILES,
   COMMENTARY_RUNS, COMMENTARY_OUT, COMMENTARY_TOSS,
   COMMENTARY_INNINGS_BREAK, COMMENTARY_GAME_OVER_WIN, COMMENTARY_GAME_OVER_TIE,
+  CATCH_COMMENTARY_SUCCESS, CATCH_COMMENTARY_DROPPED,
+  CELEBRATION_GIFS, MILESTONE_MESSAGES,
   ECONOMY, MATCH_TURN_TIMEOUT, MATCH_INACTIVITY_TIMEOUT,
   grantEconomyRewards,
 } = require('./handcricket');
 const activeHCGames = new Map(); // channelId → HandCricketGame
 const hcPlayerMap = new Map();  // userId → channelId (for DM routing)
 const hcProfileManager = new ProfileManager(supabase);
+const hcTournamentManager = new TournamentManager();
+const hcLobbyManager = new LobbyManager();
 
 /* ═══════════════════════════════════════════
    🐺 Werewolf — Mafia Night/Day Phase Functions
@@ -545,8 +553,10 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,      // ✅ FIX: Required to receive DM messages for Hand Cricket number selection
+    GatewayIntentBits.DirectMessageReactions,
   ],
-  partials: [Partials.Message, Partials.Channel],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
 client.commands = new Collection();
@@ -566,7 +576,7 @@ for (const file of fs.readdirSync(cmdPath).filter(f => f.endsWith('.js'))) {
 // Initialize handcricket slash command with shared state
 const hcSlashCmd = client.commands.get('handcricket');
 if (hcSlashCmd && hcSlashCmd.init) {
-  hcSlashCmd.init(activeHCGames, hcPlayerMap, hcProfileManager, supabase);
+  hcSlashCmd.init(activeHCGames, hcPlayerMap, hcProfileManager, supabase, hcTournamentManager, hcLobbyManager);
   console.log('🏏 Hand Cricket slash commands initialized!');
 }
 
@@ -749,6 +759,7 @@ client.on('messageCreate', async (message) => {
         }
 
         // Play number submission during game (1-6)
+        // Both batter AND bowler choose simultaneously within 30-second window
         if (hcGame.phase === HC_PHASE.PLAYING && !isNaN(num) && num >= 1 && num <= 6) {
           const isBatting = message.author.id === hcGame.battingNow;
           const roleLabel = isBatting ? '🏏 Batting' : '🎯 Bowling';
@@ -758,6 +769,7 @@ client.on('messageCreate', async (message) => {
           if (result.message === 'waiting_for_opponent') {
             // DM the opponent that they need to choose NOW
             const opponentId = isBatting ? hcGame.bowlingNow : hcGame.battingNow;
+            const timeLeft = hcGame.getSelectionTimeRemaining() || MATCH_TURN_TIMEOUT;
             if (!opponentId?.startsWith('BOT_')) {
               try {
                 const oppIsBatting = opponentId === hcGame.battingNow;
@@ -765,12 +777,12 @@ client.on('messageCreate', async (message) => {
                   embeds: [new EmbedBuilder()
                     .setColor(0xFF8C00)
                     .setTitle('🏏 Your Turn! Choose NOW!')
-                    .setDescription(`Your opponent has chosen their number!\n\nYou are ${oppIsBatting ? '**Batting** 🏏' : '**Bowling** 🎯'}\n\nType a number **1-6** quickly!\n⏱️ **${MATCH_TURN_TIMEOUT}s** on the clock!`)
+                    .setDescription(`Your opponent has chosen their number!\n\nYou are ${oppIsBatting ? '**Batting** 🏏' : '**Bowling** 🎯'}\n\nType a number **1-6** quickly!\n⏱️ **${timeLeft}s** left on the clock!`)
                     .setTimestamp()]
                 });
               } catch (e) {}
             }
-            return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**! (${roleLabel})\n\nWaiting for your opponent...\n⏱️ ${MATCH_TURN_TIMEOUT}s per ball!`).setTimestamp()] });
+            return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**! (${roleLabel})\n\nWaiting for your opponent...\n⏱️ ${timeLeft}s left!`).setTimestamp()] });
           }
 
           // Ball resolved!
@@ -781,7 +793,28 @@ client.on('messageCreate', async (message) => {
           const bowlerName = client.users.cache.get(result.bowler)?.username || hcGame.botProfile?.name || 'Bowler';
           const remaining = hcGame.getRemainingBalls();
 
-          if (result.message === 'out') {
+          // Handle catch OUT
+          if (result.message === 'catch_out') {
+            const catchEmbed = new EmbedBuilder()
+              .setColor(0x9B59B6)
+              .setTitle('🧤 CATCH OUT!')
+              .setDescription(
+                `${result.commentary || ''}\n\n**${batsmanName}** is CAUGHT!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 🏏 Batsman: ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+                `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+                `┣ 🧤 **CATCH TAKEN at ${result.catchResult?.fielder || 'field'}!**\n` +
+                `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)${remaining ? ` | ${remaining.ballsLeft} left` : ''}\n` +
+                `┗ ${result.isHatTrick ? '🎩 **HAT-TRICK!** Three wickets in a row!' : `🧤 What a catch!`}`
+              )
+              .setTimestamp();
+            await channel.send({ embeds: [catchEmbed] });
+            // Send catch GIF
+            if (result.gif) {
+              try { await channel.send(result.gif); } catch (e) {}
+            }
+          }
+          // Handle normal OUT
+          else if (result.message === 'out') {
             const outEmbed = new EmbedBuilder()
               .setColor(0xE74C3C)
               .setTitle('💀 OUT!')
@@ -791,25 +824,59 @@ client.on('messageCreate', async (message) => {
                 `┣ 🎯 Bowler: ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
                 `┣ 💀 **Same number — OUT!**\n` +
                 `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)${remaining ? ` | ${remaining.ballsLeft} left` : ''}\n` +
-                `┗ ${result.isHatTrick ? '🎩 **HAT-TRICK!** Three wickets in a row!' : `🎯 ${batsmanName} walks back...`}`
+                `┗ ${result.isHatTrick ? '🎩 **HAT-TRICK!** Three wickets in a row!' : result.isDuck ? '🦆 **GOLDEN DUCK!** Out on the first ball!' : `🎯 ${batsmanName} walks back...`}`
               )
               .setTimestamp();
             await channel.send({ embeds: [outEmbed] });
-          } else {
+            // Send wicket GIF
+            if (result.gif) {
+              try { await channel.send(result.gif); } catch (e) {}
+            }
+          }
+          // Handle runs scored
+          else {
             const runsTitle = result.isSix ? '🚀 SIXER!' : result.isFour ? '🔥 FOUR!' : `🏏 ${result.runsThisBall} Run${result.runsThisBall > 1 ? 's' : ''}!`;
+            let desc = `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
+              `┣ 🏏 **${batsmanName}** (Batting): ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
+              `┣ 🎯 **${bowlerName}** (Bowling): ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
+              `┣ 💨 **+${result.runsThisBall} runs!**${result.economyBonus > 0 ? ` (+₹${result.economyBonus})` : ''}\n` +
+              `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)${remaining ? ` | ${remaining.ballsLeft} left` : ''}`;
+
+            if (result.catchDropped && result.catchResult) {
+              desc += `\n┣ 😰 **CATCH DROPPED at ${result.catchResult.fielder}!** Lucky escape!`;
+            }
+            if (result.strikeRotated) {
+              desc += `\n┣ 🔄 **Strike rotated!**`;
+            }
+            desc += `\n┗ ${result.isSix ? '🚀 INTO ORBIT!' : result.isFour ? '🔥 Boundary!' : result.catchDropped ? '😅 Survived the drop!' : '✅ Good cricket!'}`;
+
             const runsEmbed = new EmbedBuilder()
-              .setColor(result.isSix ? 0xFF0000 : result.isFour ? 0xFF8C00 : 0x2ECC71)
+              .setColor(result.isSix ? 0xFF0000 : result.isFour ? 0xFF8C00 : result.catchDropped ? 0xF39C12 : 0x2ECC71)
               .setTitle(runsTitle)
-              .setDescription(
-                `${result.commentary || ''}\n\n━━━━━━━━━━━━━━━━━━━\n` +
-                `┣ 🏏 **${batsmanName}** (Batting): ${EMOJI_NUMBERS[result.batNum - 1]}\n` +
-                `┣ 🎯 **${bowlerName}** (Bowling): ${EMOJI_NUMBERS[result.bowlNum - 1]}\n` +
-                `┣ 💨 **+${result.runsThisBall} runs!**${result.economyBonus > 0 ? ` (+₹${result.economyBonus})` : ''}\n` +
-                `┣ 📊 **Score:** ${result.totalRuns}/${result.wickets} (${result.balls} balls)${remaining ? ` | ${remaining.ballsLeft} left` : ''}\n` +
-                `┗ ${result.isSix ? '🚀 INTO ORBIT!' : result.isFour ? '🔥 Boundary!' : '✅ Good cricket!'}`
-              )
+              .setDescription(desc)
               .setTimestamp();
             await channel.send({ embeds: [runsEmbed] });
+
+            // Send boundary GIF
+            if (result.gif) {
+              try { await channel.send(result.gif); } catch (e) {}
+            }
+
+            // Send milestone celebration embeds
+            if (result.milestoneResults) {
+              for (const milestone of result.milestoneResults) {
+                const milestoneEmbed = new EmbedBuilder()
+                  .setColor(milestone.type === 'century' ? 0xFFD700 : milestone.type === 'double_century' ? 0xFF0000 : 0x2ECC71)
+                  .setTitle(milestone.type === 'century' ? '👑 CENTURY!' : milestone.type === 'double_century' ? '🌟 DOUBLE CENTURY!' : '🏆 HALF CENTURY!')
+                  .setDescription(`${milestone.message}\n\n**${batsmanName}** — ${milestone.runs} runs!${milestone.economyBonus > 0 ? `\n💰 +₹${milestone.economyBonus} bonus!` : ''}`)
+                  .setTimestamp();
+                await channel.send({ embeds: [milestoneEmbed] });
+                // Send celebration GIF
+                if (milestone.gif) {
+                  try { await channel.send(milestone.gif); } catch (e) {}
+                }
+              }
+            }
           }
 
           // Handle innings end or game over
@@ -822,6 +889,11 @@ client.on('messageCreate', async (message) => {
               commentary: result.gameOverCommentary || COMMENTARY_GAME_OVER_WIN[Math.floor(Math.random() * COMMENTARY_GAME_OVER_WIN.length)],
               economyRewards: hcGame.calculateGameEconomy(result.winner),
             });
+
+            // Save match history
+            if (hcProfileManager) {
+              await hcProfileManager.saveMatchHistory(hcGame.getMatchHistory());
+            }
             return;
           }
 
@@ -838,11 +910,12 @@ client.on('messageCreate', async (message) => {
                 const isBatsman = pid === hcGame.battingNow;
                 const isBowler = pid === hcGame.bowlingNow;
                 if (!isBatsman && !isBowler) continue;
+                const timeLeft = hcGame.getSelectionTimeRemaining() || MATCH_TURN_TIMEOUT;
                 await client.users.cache.get(pid)?.send({
                   embeds: [new EmbedBuilder()
                     .setColor(0x2ECC71)
                     .setTitle('🏏 Next Ball!')
-                    .setDescription(`Type a number **1-6** now!\n\nYou are ${isBatsman ? '**Batting** 🏏' : '**Bowling** 🎯'}\n⏱️ **${MATCH_TURN_TIMEOUT}s** on the clock!`)
+                    .setDescription(`Type a number **1-6** now!\n\nYou are ${isBatsman ? '**Batting** 🏏' : '**Bowling** 🎯'}\n⏱️ **${timeLeft}s** on the clock!`)
                     .setTimestamp()]
                 });
               } catch (e) {}
@@ -1424,13 +1497,15 @@ client.on('messageCreate', async (message) => {
       const hcHelp = new EmbedBuilder()
         .setColor(0x2ECC71)
         .setTitle('🏏 Hand Cricket — Commands')
-        .setDescription('Indian childhood classic — now on Discord! Fast, fun, and beginner friendly!')
+        .setDescription('Indian childhood classic — now with catch system, milestones & cinematic gameplay!')
         .addFields(
           { name: '🎮 Game Modes', value: '`hc.play [overs] [wickets]` — Play vs Bot\n`hc.challenge @user [overs] [wickets]` — Challenge a friend\n`hc.accept` — Accept challenge\n`hc.decline` — Decline challenge', inline: false },
           { name: '🪙 Toss', value: '`hc.toss odd` or `hc.toss even` — Multiplayer toss\nDM `heads` or `tails` — Single player toss\nThen DM the bot a number (1-6)', inline: false },
-          { name: '🏏 Playing', value: 'DM the bot a number (1-6) each ball\n🏏 Batsman & Bowler both choose secretly\n💀 Same number = OUT!\n✅ Different = Batsman scores that many runs\n⏱️ ' + MATCH_TURN_TIMEOUT + 's per ball!', inline: false },
-          { name: '📊 Stats & Fun', value: '`hc.profile` — Your stats (with rank!)\n`hc.profile @user` — Someone\'s stats\n`hc.score` — Current match score\n`hc.leaderboard [wins/runs/winrate]` — Top players\n`hc.sledge @user` — Roast your friend 🔥', inline: false },
-          { name: '💰 Economy', value: `Play: +₹${ECONOMY.PLAY_REWARD} | Win: +₹${ECONOMY.WIN_BONUS}\nFOUR: +₹${ECONOMY.FOUR_BONUS} | SIX: +₹${ECONOMY.SIX_BONUS}\nCentury (36+): +₹${ECONOMY.CENTURY_BONUS}`, inline: false },
+          { name: '🏏 Playing', value: 'DM the bot a number (1-6) each ball\n🏏 Batsman & Bowler both choose secretly within 30s\n💀 Same number = OUT!\n🧤 Catch combos can trigger catches!\n✅ Different = Batsman scores that many runs\n⏱️ ' + MATCH_TURN_TIMEOUT + 's per ball!', inline: false },
+          { name: '📊 Stats & Fun', value: '`hc.profile` — Your stats (with rank!)\n`hc.profile @user` — Someone\'s stats\n`hc.score` — Current match score\n`hc.leaderboard [wins/runs/winrate/catches]` — Top players\n`hc.history [@user]` — Match history\n`hc.sledge @user` — Roast your friend 🔥', inline: false },
+          { name: '🏟️ Tournaments', value: '`hc.tournament create <name>` — Create tournament\n`hc.tournament join <name>` — Join tournament\n`hc.tournament start <name>` — Start tournament\n`hc.tournament list` — List tournaments', inline: false },
+          { name: '🔒 Lobbies', value: '`hc.lobby create [password]` — Create private lobby\n`hc.lobby join <code> [password]` — Join lobby\n`hc.lobby leave` — Leave lobby', inline: false },
+          { name: '💰 Economy', value: `Play: +₹${ECONOMY.PLAY_REWARD} | Win: +₹${ECONOMY.WIN_BONUS}\nFOUR: +₹${ECONOMY.FOUR_BONUS} | SIX: +₹${ECONOMY.SIX_BONUS}\nCATCH: +₹${ECONOMY.CATCH_BONUS} | Half Century: +₹${ECONOMY.MILESTONE_50_BONUS}\nCentury (100): +₹${ECONOMY.MILESTONE_100_BONUS}`, inline: false },
           { name: '📖 Other', value: '`hc.howtoplay` — Detailed guide\n`hc.quit` — Quit current game\n\n💡 Also works as slash commands: `/handcricket`', inline: false },
         )
         .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
@@ -1807,6 +1882,228 @@ client.on('messageCreate', async (message) => {
         .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket | Min 3 games for win rate' })
         .setTimestamp();
       return message.reply({ embeds: [lbEmbed] });
+    }
+
+    /* ── hc.history — Match History ── */
+    if (cmd === 'hc.history') {
+      const targetUser = message.mentions.users.first() || message.author;
+      const history = await hcProfileManager.getMatchHistory(targetUser.id, 5);
+      if (!history || history.length === 0) {
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(`❌ No match history found for **${targetUser.username}**! Play some games first.`).setTimestamp()] });
+      }
+
+      let desc = '';
+      for (let i = 0; i < history.length; i++) {
+        const match = history[i];
+        const date = match.start_time ? new Date(match.start_time).toLocaleDateString() : 'Unknown';
+        const winner = match.winner;
+        const isWinner = winner === targetUser.id;
+        desc += `${isWinner ? '🏆' : '❌'} **Match ${i + 1}** — ${date}\n`;
+        desc += `┣ 📏 ${match.overs} overs, ${match.wickets} wickets\n`;
+        if (match.catch_chances > 0) {
+          desc += `┣ 🧤 Catches: ${match.catches_taken}/${match.catch_chances} (${match.catches_dropped} dropped)\n`;
+        }
+        desc += `┗ ${isWinner ? '**Won!**' : winner ? 'Lost' : 'Tied'}\n\n`;
+      }
+
+      const histEmbed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle(`🏏 Match History — ${targetUser.username}`)
+        .setDescription(desc)
+        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket | Last 5 matches' })
+        .setTimestamp();
+      return message.reply({ embeds: [histEmbed] });
+    }
+
+    /* ── hc.tournament ── */
+    if (cmd === 'hc.tournament') {
+      const subCmd = args[1]?.toLowerCase();
+
+      if (subCmd === 'create') {
+        const name = args.slice(2).join('_') || `tournament_${Date.now()}`;
+        const maxPlayers = parseInt(args[3]) || 8;
+        const result = hcTournamentManager.create(name, message.author.id, message.channel.id, message.guild.id, { maxPlayers });
+        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+
+        const tEmbed = new EmbedBuilder()
+          .setColor(0xFFD700)
+          .setTitle('🏟️ Tournament Created!')
+          .setDescription(
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `┣ 📛 **Name:** ${name}\n` +
+            `┣ 👥 **Players:** 1/${result.tournament.maxPlayers}\n` +
+            `┣ 🏏 **Host:** ${message.author.username}\n` +
+            `┣ 📝 Join: \`hc.tournament join ${name}\`\n` +
+            `┣ 🚀 Start: \`hc.tournament start ${name}\`\n` +
+            `┗ 🗑️ Delete: \`hc.tournament delete ${name}\``
+          )
+          .setFooter({ text: '🏏 Hand Cricket Tournament' })
+          .setTimestamp();
+        return message.reply({ embeds: [tEmbed] });
+      }
+
+      if (subCmd === 'join') {
+        const name = args.slice(2).join('_');
+        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide tournament name! `hc.tournament join <name>`').setTimestamp()] });
+        const result = hcTournamentManager.join(name, message.author.id);
+        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0x2ECC71).setTitle('✅ Joined Tournament!').setDescription(`**${message.author.username}** joined! (${result.playerCount}/${result.maxPlayers} players)`).setTimestamp()] });
+      }
+
+      if (subCmd === 'leave') {
+        const name = args.slice(2).join('_');
+        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide tournament name! `hc.tournament leave <name>`').setTimestamp()] });
+        const result = hcTournamentManager.leave(name, message.author.id);
+        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0x2ECC71).setDescription('✅ Left the tournament!').setTimestamp()] });
+      }
+
+      if (subCmd === 'start') {
+        const name = args.slice(2).join('_');
+        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide tournament name! `hc.tournament start <name>`').setTimestamp()] });
+        const result = hcTournamentManager.start(name);
+        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+
+        let matchesDesc = '';
+        for (let i = 0; i < result.firstRoundMatches.length; i++) {
+          const m = result.firstRoundMatches[i];
+          const p1 = client.users.cache.get(m.player1)?.username || `<@${m.player1}>`;
+          const p2 = m.player2 ? (client.users.cache.get(m.player2)?.username || `<@${m.player2}>`) : 'BYE';
+          matchesDesc += `**Match ${i + 1}:** ${p1} vs ${p2}${m.player2 === null ? ' (auto-advance)' : ''}\n`;
+        }
+
+        const tEmbed = new EmbedBuilder()
+          .setColor(0xFFD700)
+          .setTitle('🏟️ Tournament Started!')
+          .setDescription(
+            `**${result.tournament.name}** — ${result.tournament.players.length} players, ${result.numRounds} rounds!\n\n` +
+            `**Round 1 Matches:**\n${matchesDesc}\n` +
+            `Players: Use \`hc.challenge @opponent\` to play your matches!`
+          )
+          .setFooter({ text: '🏏 Hand Cricket Tournament' })
+          .setTimestamp();
+        return message.reply({ embeds: [tEmbed] });
+      }
+
+      if (subCmd === 'delete') {
+        const name = args.slice(2).join('_');
+        if (!name) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide tournament name!').setTimestamp()] });
+        const result = hcTournamentManager.delete(name, message.author.id);
+        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setTitle('🗑️ Tournament Deleted!').setTimestamp()] });
+      }
+
+      if (subCmd === 'list') {
+        const list = hcTournamentManager.list();
+        if (list.length === 0) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ No tournaments found! Create one with `hc.tournament create <name>`').setTimestamp()] });
+
+        let desc = '';
+        for (const t of list) {
+          const statusEmoji = t.status === 'registration' ? '📝' : t.status === 'in_progress' ? '🏏' : '🏆';
+          desc += `${statusEmoji} **${t.name}** — ${t.players}/${t.maxPlayers} players (${t.status})\n`;
+        }
+
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0x3498DB).setTitle('🏟️ Tournaments').setDescription(desc).setTimestamp()] });
+      }
+
+      // Default: show tournament help
+      const tHelpEmbed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle('🏟️ Tournament Commands')
+        .setDescription(
+          '`hc.tournament create <name>` — Create a tournament\n' +
+          '`hc.tournament join <name>` — Join a tournament\n' +
+          '`hc.tournament leave <name>` — Leave a tournament\n' +
+          '`hc.tournament start <name>` — Start the tournament (host)\n' +
+          '`hc.tournament delete <name>` — Delete the tournament (host)\n' +
+          '`hc.tournament list` — List all tournaments'
+        )
+        .setTimestamp();
+      return message.reply({ embeds: [tHelpEmbed] });
+    }
+
+    /* ── hc.lobby ── */
+    if (cmd === 'hc.lobby') {
+      const subCmd = args[1]?.toLowerCase();
+
+      if (subCmd === 'create') {
+        const password = args[2] || null;
+        const result = hcLobbyManager.create(message.author.id, message.channel.id, message.guild.id, password);
+        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Failed to create lobby!').setTimestamp()] });
+
+        const lEmbed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setTitle('🔒 Private Lobby Created!')
+          .setDescription(
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `┣ 🏷️ **Code:** \`${result.code}\`\n` +
+            `┣ 🔑 **Password:** ${password ? `\`${password}\`` : 'None (open lobby)'}\n` +
+            `┣ 👥 **Players:** 1/2\n` +
+            `┣ 🏏 **Host:** ${message.author.username}\n` +
+            `┗ 📝 Join: \`hc.lobby join ${result.code}${password ? ` ${password}` : ''}\``
+          )
+          .setFooter({ text: '🏏 Private Lobby — Share the code with your friend!' })
+          .setTimestamp();
+        return message.reply({ embeds: [lEmbed] });
+      }
+
+      if (subCmd === 'join') {
+        const code = args[2]?.toUpperCase();
+        if (!code) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ Provide lobby code! `hc.lobby join <code> [password]`').setTimestamp()] });
+        const password = args[3] || null;
+        const result = hcLobbyManager.join(code, message.author.id, password);
+        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+
+        // If lobby is full (2 players), auto-start the game
+        if (result.lobby.players.length >= result.lobby.maxPlayers) {
+          const lobby = result.lobby;
+          const game = new HandCricketGame(lobby.creatorId, message.author.id, lobby.channelId, lobby.guildId, { overs: lobby.overs, wickets: lobby.wickets });
+          game.channel = message.channel;
+          game.accept();
+          activeHCGames.set(lobby.channelId, game);
+          hcPlayerMap.set(lobby.creatorId, lobby.channelId);
+          hcPlayerMap.set(message.author.id, lobby.channelId);
+
+          hcLobbyManager.delete(code);
+
+          const startEmbed = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setTitle('🏏 Lobby Game Starting!')
+            .setDescription(
+              `Both players are in! Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n` +
+              `┣ 🪙 **Toss Time!**\n` +
+              `┣ Both players: use \`hc.toss odd\` or \`hc.toss even\`\n` +
+              `┣ Then DM me a number (1-6) for the toss\n` +
+              `┗ 🤫 Your number is secret!`
+            )
+            .setFooter({ text: '🏏 Hand Cricket — Private Lobby Match' })
+            .setTimestamp();
+          return message.reply({ embeds: [startEmbed] });
+        }
+
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0x2ECC71).setTitle('✅ Joined Lobby!').setDescription(`Waiting for opponent... (${result.lobby.players.length}/${result.lobby.maxPlayers})`).setTimestamp()] });
+      }
+
+      if (subCmd === 'leave') {
+        const existing = hcLobbyManager.getByPlayer(message.author.id);
+        if (!existing) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription('❌ You are not in any lobby!').setTimestamp()] });
+        const result = hcLobbyManager.leave(existing.code, message.author.id);
+        if (!result.success) return message.reply({ embeds: [new EmbedBuilder().setColor(0xE74C3C).setDescription(result.message).setTimestamp()] });
+        return message.reply({ embeds: [new EmbedBuilder().setColor(0x2ECC71).setDescription('✅ Left the lobby!').setTimestamp()] });
+      }
+
+      // Default: show lobby help
+      const lHelpEmbed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setTitle('🔒 Lobby Commands')
+        .setDescription(
+          '`hc.lobby create [password]` — Create a private lobby\n' +
+          '`hc.lobby join <code> [password]` — Join a lobby\n' +
+          '`hc.lobby leave` — Leave your current lobby'
+        )
+        .setTimestamp();
+      return message.reply({ embeds: [lHelpEmbed] });
     }
   }
 

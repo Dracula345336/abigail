@@ -1,22 +1,33 @@
 /* ═══════════════════════════════════════════
    🏏  Hand Cricket — Indian Childhood Classic!
-   (Enhanced with Timers, Commentary, Economy & Leaderboards)
+   (Enhanced with Catch System, Milestones, Strike System,
+    Bowling Rotation, Tournaments, Match History & More)
 
    Game Modes:
      - Single Player: Play against the Bot (hc.play)
      - Multiplayer 1v1: Challenge a friend (hc.challenge)
+     - Team Matches: 2v2, 3v3 (hc.team)
+     - Tournaments: Bracket-style (hc.tournament)
+     - Private Lobbies: Password-protected (hc.lobby)
 
    Features:
      - Coin Toss (Heads/Tails) + Odd-Even Toss
-     - DM-based number selection (1-6)
+     - DM-based number selection (1-6) with 30s timer
+     - Catch System with diving catches, dropped catches
+     - Milestone celebrations (50 runs, 100 runs)
+     - Strike/Non-Strike rotation
+     - Bowling rotation
      - Customizable Overs & Wickets
-     - Score tracking with wickets & run rate
+     - Real-time score tracking with embeds
      - Same number = OUT!
      - Match Timer with auto-end
      - Funny ball-by-ball commentary
      - Economy rewards (INR)
      - Player Profiles with stats
      - Leaderboards
+     - Match History
+     - Tournament system
+     - Private lobbies
      - Sledge your friends
      - Slash commands support
 
@@ -33,6 +44,12 @@
      hc.howtoplay                    — Guide
      hc.help                         — Quick help
      hc.leaderboard                  — Top players
+     hc.history                      — Match history
+     hc.tournament create [name]     — Create tournament
+     hc.tournament join [name]       — Join tournament
+     hc.tournament start [name]      — Start tournament
+     hc.lobby create [password]      — Create private lobby
+     hc.lobby join [password]        — Join private lobby
 
    DM Commands:
      heads / tails  — Coin toss choice (vs Bot)
@@ -60,14 +77,127 @@ const MATCH_INACTIVITY_TIMEOUT = 120; // seconds of total inactivity before game
 
 /* ── Economy Rewards ── */
 const ECONOMY = {
-  PLAY_REWARD: 10,          // INR for playing a game
-  WIN_BONUS: 50,            // INR for winning
-  FOUR_BONUS: 5,            // INR per boundary (4)
-  SIX_BONUS: 10,            // INR per sixer (6)
-  DUCK_PENALTY: 0,          // no penalty for 0 runs
-  CENTURY_BONUS: 100,       // INR bonus for scoring 36+ (6 overs equivalent century)
-  HATTRICK_BONUS: 30,       // INR bonus for taking 3 wickets in a row
-  STREAK_WIN_BONUS: 20,     // INR per consecutive win (capped at 5)
+  PLAY_REWARD: 10,
+  WIN_BONUS: 50,
+  FOUR_BONUS: 5,
+  SIX_BONUS: 10,
+  DUCK_PENALTY: 0,
+  CENTURY_BONUS: 100,
+  HATTRICK_BONUS: 30,
+  STREAK_WIN_BONUS: 20,
+  CATCH_BONUS: 15,
+  MILESTONE_50_BONUS: 25,
+  MILESTONE_100_BONUS: 50,
+};
+
+/* ── Catch System ── */
+// Combinations that trigger catch chance: [batNum, bowlNum] → catch probability
+const CATCH_COMBOS = {
+  '4_3': { chance: 0.30, type: 'edge', fielder: 'slip' },      // Edged to slip
+  '6_1': { chance: 0.25, type: 'sky', fielder: 'long_on' },    // Skied to long-on
+  '6_5': { chance: 0.35, type: 'boundary', fielder: 'deep_mid' }, // Caught at deep midwicket
+  '5_2': { chance: 0.20, type: 'drive', fielder: 'cover' },    // Driven to cover
+  '4_1': { chance: 0.15, type: 'cut', fielder: 'point' },      // Cut to point
+  '3_6': { chance: 0.25, type: 'pull', fielder: 'fine_leg' },  // Pulled to fine leg
+  '2_4': { chance: 0.20, type: 'flick', fielder: 'mid_wicket' }, // Flicked to midwicket
+  '5_3': { chance: 0.30, type: 'lofted', fielder: 'long_off' }, // Lofted to long-off
+};
+
+const CATCH_COMMENTARY_SUCCESS = [
+  '🧤 WHAT A CATCH! That was stunning! The fielder flew like Superman!',
+  '🤯 CAUGHT! Unbelievable grab! The crowd goes absolutely ballistic!',
+  '💪 DIVING CATCH! Full stretch and taken! Poetry in motion!',
+  '🔥 ONE-HANDED WONDER! How did they even catch that?!',
+  '🎯 CAUGHT AND BOWLED! The bowler takes it themselves!',
+  '😭 GONE! The fielder makes no mistake! What a grab!',
+  '🌟 SENSATIONAL! That catch will be on highlight reels forever!',
+  '🦅 SOARING EAGLE! The fielder plucked it out of thin air!',
+  '📸 Picture perfect catch! That one is framed on the wall!',
+  '🎪 CIRCUS CATCH! The acrobatics were unbelievable!',
+];
+
+const CATCH_COMMENTARY_DROPPED = [
+  '😰 DROPPED! Oh no! The fielder put it down! What a let-off!',
+  '😱 SHELL SHOCKED! How did they drop that?! The batter survives!',
+  '💥 DROPPED CATCH! The fielder will have nightmares about that!',
+  '😅 ESCAPED! The ball went through the hands! Lucky batter!',
+  '🤦 WHAT A HOWLER! That should have been caught! Dropped!',
+  '😬 BUTTER FINGERS! The fielder can\'t believe they dropped it!',
+  '🎉 SURVIVES! The catch goes down and the batter lives to fight another ball!',
+  '🙈 GIFT HORSE! The fielder had it and dropped it! What a let-off!',
+  '😤 COSTLY DROP! That could come back to haunt them!',
+  '🫣 OH MY! The simplest of chances and it\'s DROPPED!',
+];
+
+const CATCH_DIVE_COMMENTARY = [
+  '🤿 DIVING EFFORT! The fielder launches themselves through the air!',
+  '🏃 SPRINTING CATCH! The fielder covered incredible ground!',
+  '🌊 SLIDING CATCH! The fielder slides and just gets there!',
+  '✈️ AIRBORNE! The fielder is literally flying to take this!',
+];
+
+/* ── Milestone Celebrations ── */
+const MILESTONES = {
+  HALF_CENTURY: 50,
+  CENTURY: 100,
+  DOUBLE_CENTURY: 200,
+};
+
+// GIF URLs for celebrations (using known cricket GIF URLs)
+const CELEBRATION_GIFS = {
+  fifty: [
+    'https://media.tenor.com/vJx5Ml6O7XEAAAAC/virat-kohli-celebration.gif',
+    'https://media.tenor.com/4nMPKFE9WQ4AAAAC/cricket-fifty.gif',
+    'https://media.tenor.com/dHkWxXEQ4QAAAAC/virat-kohli-fifty.gif',
+    'https://media.tenor.com/N3qI-7Xv7qoAAAAC/kohli-celebration.gif',
+  ],
+  century: [
+    'https://media.tenor.com/3LpFGf6Y1YkAAAAC/virat-kohli-century.gif',
+    'https://media.tenor.com/bOOa8VfN0TMAAAAC/kohli-hundred-celebration.gif',
+    'https://media.tenor.com/7vPz0BqXv_kAAAAC/cricket-century-bat.gif',
+    'https://media.tenor.com/FIYvE1hq0mUAAAAC/virat-kohli-100.gif',
+  ],
+  wicket: [
+    'https://media.tenor.com/0a8R1OqB7JIAAAAC/cricket-wicket-bowled.gif',
+    'https://media.tenor.com/9hJ3HqvDxnMAAAAC/cricket-out.gif',
+    'https://media.tenor.com/JWQmHlGkZSMAAAAC/bowled-cricket.gif',
+  ],
+  six: [
+    'https://media.tenor.com/aKqFr0g7oFMAAAAC/cricket-six-hit.gif',
+    'https://media.tenor.com/7HKDYbFi8XIAAAAC/sixer-cricket.gif',
+    'https://media.tenor.com/Z5qwQj0QbLkAAAAC/six-cricket-boundary.gif',
+  ],
+  four: [
+    'https://media.tenor.com/bXGYmEkX-54AAAAC/cricket-four-boundary.gif',
+    'https://media.tenor.com/q9sGfYe5J5sAAAAC/four-cricket-cover-drive.gif',
+  ],
+  catch: [
+    'https://media.tenor.com/GCWfVjMqFxwAAAAC/cricket-catch-diving.gif',
+    'https://media.tenor.com/FqyXVEHs7E4AAAAC/amazing-catch-cricket.gif',
+  ],
+  matchWin: [
+    'https://media.tenor.com/HYbJwG1DKYoAAAAC/cricket-celebration-win.gif',
+    'https://media.tenor.com/tMJBqGqHB2EAAAAC/team-celebration-cricket.gif',
+  ],
+};
+
+const MILESTONE_MESSAGES = {
+  fifty: [
+    '🏆 **HALF CENTURY!** What a knock! The crowd is on their feet!',
+    '🔥 **FIFTY!** The batter reaches the milestone! Outstanding innings!',
+    '⭐ **50 RUNS!** Halfway to glory! What a player!',
+    '🏏 **FIFTY UP!** Class act! The bowlers have no answer!',
+  ],
+  century: [
+    '👑 **CENTURY!** 100 RUNS! The stadium erupts! Absolute legend!',
+    '🚀 **HUNDRED!** Take a bow! What an absolute masterclass!',
+    '💎 **100 RUNS!** The batter has reached three figures! Incredible!',
+    '🎯 **CENTURY!** History in the making! Unbelievable batting!',
+  ],
+  doubleCentury: [
+    '🌟 **DOUBLE CENTURY!** 200 RUNS! This is legendary stuff!',
+    '🔱 **200!** Unbelievable! The batter is unstoppable!',
+  ],
 };
 
 /* ── Funny Ball-by-Ball Commentary ── */
@@ -200,35 +330,33 @@ const BOT_PROFILES = [
   { name: '🤖 YorkerKing', style: 'balanced' },
   { name: '🤖 BatSmasher', style: 'aggressive' },
   { name: '🤖 WallBuilder', style: 'defensive' },
+  { name: '🤖 PaceDemon', style: 'aggressive' },
+  { name: '🤖 CoolRunner', style: 'balanced' },
+  { name: '🤖 SixMachine', style: 'aggressive' },
 ];
 
 /* ── Bot AI ── */
 function getBotNumber(style, playerHistory = [], currentBall = 0) {
-  // Smart bot AI based on style and player patterns
   if (playerHistory.length >= 3) {
-    // Try to predict player's next number based on recent pattern
     const recent = playerHistory.slice(-3);
     const mostCommon = recent.sort((a, b) =>
       recent.filter(v => v === b).length - recent.filter(v => v === a).length
     )[0];
 
     if (style === 'aggressive' && Math.random() < 0.4) {
-      return mostCommon; // Try to match (bowl them out)
+      return mostCommon;
     }
     if (style === 'defensive' && Math.random() < 0.3) {
       return mostCommon;
     }
   }
 
-  // Style-based tendencies
   switch (style) {
     case 'aggressive':
-      // Favors higher numbers
       return [1, 2, 3, 4, 5, 6][Math.floor(Math.random() * 6)];
     case 'defensive':
-      // Favors lower numbers
       return [1, 1, 2, 2, 3, 4][Math.floor(Math.random() * 6)];
-    default: // balanced
+    default:
       return Math.floor(Math.random() * 6) + 1;
   }
 }
@@ -270,10 +398,22 @@ class HandCricketGame {
     this.battingNow = null;
     this.bowlingNow = null;
 
+    // Strike/Non-Strike System
+    this.striker = null;       // Current striker (facing the ball)
+    this.nonStriker = null;    // Non-striker at the other end
+    this.strikeRotated = false;
+
+    // Bowling Rotation
+    this.bowlerOrder = [];     // Queue of bowlers
+    this.currentBowlerIdx = 0;
+    this.bowlerStats = {};     // Track each bowler's stats
+    this.ballsThisOver = 0;    // Balls bowled in current over
+    this.currentOverBowler = null;
+
     // Score
     this.scores = {};
-    this.scores[player1Id] = { runs: 0, wickets: 0, balls: 0, fours: 0, sixes: 0 };
-    this.scores[player2Id] = { runs: 0, wickets: 0, balls: 0, fours: 0, sixes: 0 };
+    this.scores[player1Id] = { runs: 0, wickets: 0, balls: 0, fours: 0, sixes: 0, catches: 0, ducks: 0 };
+    this.scores[player2Id] = { runs: 0, wickets: 0, balls: 0, fours: 0, sixes: 0, catches: 0, ducks: 0 };
 
     // Current ball
     this.currentNumbers = {};
@@ -292,6 +432,14 @@ class HandCricketGame {
     // Consecutive wickets for hat-trick tracking
     this.consecutiveWickets = 0;
 
+    // Catch tracking
+    this.catchChances = 0;
+    this.catchesTaken = 0;
+    this.catchesDropped = 0;
+
+    // Milestone tracking
+    this.milestonesReached = []; // Track which milestones have been shown
+
     // Match Timer
     this.lastActivity = Date.now();
     this.turnTimer = null;
@@ -300,6 +448,15 @@ class HandCricketGame {
 
     // Commentary
     this.lastCommentary = '';
+
+    // Match ID for history
+    this.matchId = `HC_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    this.startTime = Date.now();
+    this.endTime = null;
+
+    // 30-second DM selection window tracking
+    this.selectionWindow = null;
+    this.selectionDeadline = null;
   }
 
   /**
@@ -329,17 +486,19 @@ class HandCricketGame {
   clearTimers() {
     if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
     if (this.inactivityTimer) { clearTimeout(this.inactivityTimer); this.inactivityTimer = null; }
+    if (this.selectionWindow) { clearTimeout(this.selectionWindow); this.selectionWindow = null; }
   }
 
   /**
-   * Start turn timer — auto-out if player doesn't respond
+   * Start turn timer — 30 second window for BOTH players to choose
    */
   startTurnTimer(onTurnTimeout, onInactivityTimeout) {
     this.clearTimers();
     this.turnStartTime = Date.now();
     this.lastActivity = Date.now();
+    this.selectionDeadline = Date.now() + (MATCH_TURN_TIMEOUT * 1000);
 
-    // Turn timer: auto-out if one player doesn't respond
+    // Turn timer: auto-out if player doesn't respond within 30s
     this.turnTimer = setTimeout(() => {
       onTurnTimeout(this);
     }, MATCH_TURN_TIMEOUT * 1000);
@@ -514,6 +673,20 @@ class HandCricketGame {
 
     this.battingNow = this.battingFirst;
     this.bowlingNow = this.bowlingFirst;
+
+    // Initialize strike/non-strike
+    this.striker = this.battingNow;
+    this.nonStriker = this.bowlingNow;
+
+    // Initialize bowling rotation
+    this.bowlerOrder = [this.bowlingNow];
+    this.currentBowlerIdx = 0;
+    this.currentOverBowler = this.bowlingNow;
+    this.ballsThisOver = 0;
+
+    // Initialize bowler stats
+    this.bowlerStats[this.bowlingNow] = { balls: 0, runs: 0, wickets: 0, overs: 0 };
+
     this.currentInnings = 1;
     this.phase = GAME_PHASE.PLAYING;
     this.currentNumbers = {};
@@ -534,11 +707,165 @@ class HandCricketGame {
   }
 
   /* ═══════════════════════════════════════════
+     🧤 CATCH SYSTEM
+     ═══════════════════════════════════════════ */
+
+  /**
+   * Check if a catch chance is triggered for this ball
+   * Returns catch result or null if no catch triggered
+   */
+  checkCatchChance(batNum, bowlNum) {
+    const key = `${batNum}_${bowlNum}`;
+    const combo = CATCH_COMBOS[key];
+
+    if (!combo) return null;
+
+    // Roll for catch
+    const catchRoll = Math.random();
+    if (catchRoll > combo.chance) {
+      // No catch triggered this time
+      return null;
+    }
+
+    this.catchChances++;
+
+    // Determine if catch is successful (70% success, 30% dropped)
+    const catchSuccess = Math.random() < 0.70;
+
+    // Determine if it's a diving catch (40% of catch chances)
+    const isDiving = Math.random() < 0.40;
+
+    if (catchSuccess) {
+      this.catchesTaken++;
+      return {
+        triggered: true,
+        success: true,
+        isDiving,
+        fielder: combo.fielder,
+        type: combo.type,
+        commentary: CATCH_COMMENTARY_SUCCESS[Math.floor(Math.random() * CATCH_COMMENTARY_SUCCESS.length)],
+        diveCommentary: isDiving ? CATCH_DIVE_COMMENTARY[Math.floor(Math.random() * CATCH_DIVE_COMMENTARY.length)] : null,
+      };
+    } else {
+      this.catchesDropped++;
+      return {
+        triggered: true,
+        success: false,
+        isDiving,
+        fielder: combo.fielder,
+        type: combo.type,
+        commentary: CATCH_COMMENTARY_DROPPED[Math.floor(Math.random() * CATCH_COMMENTARY_DROPPED.length)],
+        diveCommentary: isDiving ? CATCH_DIVE_COMMENTARY[Math.floor(Math.random() * CATCH_DIVE_COMMENTARY.length)] : null,
+      };
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     🏆 MILESTONE CHECKER
+     ═══════════════════════════════════════════ */
+
+  /**
+   * Check if the batsman has reached a milestone
+   * Returns milestone info or null
+   */
+  checkMilestone(batsmanId, currentRuns) {
+    const milestones = [];
+
+    // Check half century (50 runs)
+    if (currentRuns >= MILESTONES.HALF_CENTURY && !this.milestonesReached.includes(`${batsmanId}_50`)) {
+      this.milestonesReached.push(`${batsmanId}_50`);
+      const gif = CELEBRATION_GIFS.fifty[Math.floor(Math.random() * CELEBRATION_GIFS.fifty.length)];
+      const msg = MILESTONE_MESSAGES.fifty[Math.floor(Math.random() * MILESTONE_MESSAGES.fifty.length)];
+      milestones.push({
+        type: 'fifty',
+        runs: MILESTONES.HALF_CENTURY,
+        message: msg,
+        gif,
+        economyBonus: ECONOMY.MILESTONE_50_BONUS,
+      });
+    }
+
+    // Check century (100 runs)
+    if (currentRuns >= MILESTONES.CENTURY && !this.milestonesReached.includes(`${batsmanId}_100`)) {
+      this.milestonesReached.push(`${batsmanId}_100`);
+      const gif = CELEBRATION_GIFS.century[Math.floor(Math.random() * CELEBRATION_GIFS.century.length)];
+      const msg = MILESTONE_MESSAGES.century[Math.floor(Math.random() * MILESTONE_MESSAGES.century.length)];
+      milestones.push({
+        type: 'century',
+        runs: MILESTONES.CENTURY,
+        message: msg,
+        gif,
+        economyBonus: ECONOMY.MILESTONE_100_BONUS,
+      });
+    }
+
+    // Check double century (200 runs)
+    if (currentRuns >= MILESTONES.DOUBLE_CENTURY && !this.milestonesReached.includes(`${batsmanId}_200`)) {
+      this.milestonesReached.push(`${batsmanId}_200`);
+      const gif = CELEBRATION_GIFS.century[Math.floor(Math.random() * CELEBRATION_GIFS.century.length)];
+      const msg = MILESTONE_MESSAGES.doubleCentury[Math.floor(Math.random() * MILESTONE_MESSAGES.doubleCentury.length)];
+      milestones.push({
+        type: 'double_century',
+        runs: MILESTONES.DOUBLE_CENTURY,
+        message: msg,
+        gif,
+        economyBonus: ECONOMY.MILESTONE_100_BONUS * 2,
+      });
+    }
+
+    return milestones.length > 0 ? milestones : null;
+  }
+
+  /* ═══════════════════════════════════════════
+     🔄 STRIKE ROTATION
+     ═══════════════════════════════════════════ */
+
+  /**
+   * Rotate strike — happens on odd runs and at end of over
+   */
+  rotateStrike(runsScored) {
+    // Rotate on odd runs
+    if (runsScored % 2 !== 0) {
+      const temp = this.striker;
+      this.striker = this.nonStriker;
+      this.nonStriker = temp;
+      this.strikeRotated = true;
+    } else {
+      this.strikeRotated = false;
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     🎯 BOWLING ROTATION
+     ═══════════════════════════════════════════ */
+
+  /**
+   * Update bowling rotation at end of over
+   */
+  updateBowlingRotation() {
+    this.ballsThisOver = 0;
+
+    // For 1v1 games, there's only one bowler, so no rotation needed
+    if (this.bowlerOrder.length <= 1) return;
+
+    // Move to next bowler
+    this.currentBowlerIdx = (this.currentBowlerIdx + 1) % this.bowlerOrder.length;
+    this.currentOverBowler = this.bowlerOrder[this.currentBowlerIdx];
+    this.bowlingNow = this.currentOverBowler;
+
+    // Update bowler overs
+    if (this.bowlerStats[this.bowlingNow]) {
+      this.bowlerStats[this.bowlingNow].overs++;
+    }
+  }
+
+  /* ═══════════════════════════════════════════
      🏏 GAMEPLAY
      ═══════════════════════════════════════════ */
 
   /**
    * Submit play number (DM) — 1-6 during gameplay
+   * Both batter AND bowler choose simultaneously within 30 seconds
    */
   submitPlayNumber(userId, number) {
     if (this.phase !== GAME_PHASE.PLAYING) {
@@ -566,16 +893,13 @@ class HandCricketGame {
     if (this.isBotGame) {
       const botId = this.player2Id;
       if (this.currentNumbers[botId] === undefined) {
-        // Bot AI — use style-based logic
         const isBotBatting = this.battingNow === botId;
         const style = this.botProfile?.style || 'balanced';
 
         if (isBotBatting) {
-          // Bot is batting — try to avoid player's predicted number
           const botNum = getBotNumber(style, this.playerHistory, this.scores[botId].balls);
           this.currentNumbers[botId] = botNum;
         } else {
-          // Bot is bowling — try to match player's predicted number
           const botNum = getBotNumber(style, this.playerHistory, this.scores[this.player1Id].balls);
           this.currentNumbers[botId] = botNum;
         }
@@ -594,6 +918,7 @@ class HandCricketGame {
 
   /**
    * Resolve a ball — both numbers are in
+   * Includes catch system and milestone checking
    */
   resolveBall(batNum, bowlNum) {
     const batsman = this.battingNow;
@@ -602,6 +927,12 @@ class HandCricketGame {
 
     this.currentNumbers = {};
     this.scores[batsman].balls++;
+    this.ballsThisOver++;
+
+    // Update bowler stats
+    if (this.bowlerStats[bowler]) {
+      this.bowlerStats[bowler].balls++;
+    }
 
     // Log the ball
     this.ballLog.push({
@@ -611,30 +942,114 @@ class HandCricketGame {
       bowlNum,
       runs: isOut ? 0 : batNum,
       out: isOut,
+      catchAttempt: false,
+      catchSuccess: false,
     });
 
     let commentary = '';
+    let catchResult = null;
+    let milestoneResults = null;
+    let catchOut = false;
 
     if (isOut) {
       this.scores[batsman].wickets++;
       this.consecutiveWickets++;
+
+      // Track duck
+      if (this.scores[batsman].runs === 0) {
+        this.scores[batsman].ducks++;
+      }
+
+      // Update bowler wicket stats
+      if (this.bowlerStats[bowler]) {
+        this.bowlerStats[bowler].wickets++;
+      }
+
       commentary = COMMENTARY_OUT[Math.floor(Math.random() * COMMENTARY_OUT.length)];
     } else {
-      this.consecutiveWickets = 0;
-      this.scores[batsman].runs += batNum;
-      if (batNum === 4) this.scores[batsman].fours++;
-      if (batNum === 6) this.scores[batsman].sixes++;
-      commentary = (COMMENTARY_RUNS[batNum] || [])[Math.floor(Math.random() * (COMMENTARY_RUNS[batNum] || ['🏏 Runs scored!']).length)] || '🏏 Runs scored!';
+      // Check for catch chance BEFORE scoring runs
+      catchResult = this.checkCatchChance(batNum, bowlNum);
+
+      if (catchResult && catchResult.success) {
+        // Successful catch = OUT!
+        catchOut = true;
+        this.scores[batsman].wickets++;
+        this.scores[batsman].catches++;
+        this.consecutiveWickets++;
+
+        // Update bowler wicket stats
+        if (this.bowlerStats[bowler]) {
+          this.bowlerStats[bowler].wickets++;
+        }
+
+        // Update ball log
+        this.ballLog[this.ballLog.length - 1].out = true;
+        this.ballLog[this.ballLog.length - 1].catchAttempt = true;
+        this.ballLog[this.ballLog.length - 1].catchSuccess = true;
+
+        const diveStr = catchResult.isDiving ? ` ${catchResult.diveCommentary}` : '';
+        commentary = `${diveStr} ${catchResult.commentary}`;
+      } else if (catchResult && !catchResult.success) {
+        // Dropped catch — batter survives and scores runs
+        this.consecutiveWickets = 0;
+        this.scores[batsman].runs += batNum;
+        if (batNum === 4) this.scores[batsman].fours++;
+        if (batNum === 6) this.scores[batsman].sixes++;
+
+        // Update bowler runs conceded
+        if (this.bowlerStats[bowler]) {
+          this.bowlerStats[bowler].runs += batNum;
+        }
+
+        // Strike rotation on runs scored
+        this.rotateStrike(batNum);
+
+        // Check milestones
+        milestoneResults = this.checkMilestone(batsman, this.scores[batsman].runs);
+
+        const diveStr = catchResult.isDiving ? ` ${catchResult.diveCommentary}` : '';
+        const runsCommentary = (COMMENTARY_RUNS[batNum] || [])[Math.floor(Math.random() * (COMMENTARY_RUNS[batNum] || ['🏏 Runs scored!']).length)] || '🏏 Runs scored!';
+        commentary = `${diveStr} ${catchResult.commentary}\n${runsCommentary}`;
+
+        // Update ball log
+        this.ballLog[this.ballLog.length - 1].catchAttempt = true;
+        this.ballLog[this.ballLog.length - 1].catchSuccess = false;
+      } else {
+        // Normal play — no catch triggered
+        this.consecutiveWickets = 0;
+        this.scores[batsman].runs += batNum;
+        if (batNum === 4) this.scores[batsman].fours++;
+        if (batNum === 6) this.scores[batsman].sixes++;
+
+        // Update bowler runs conceded
+        if (this.bowlerStats[bowler]) {
+          this.bowlerStats[bowler].runs += batNum;
+        }
+
+        // Strike rotation on runs scored
+        this.rotateStrike(batNum);
+
+        // Check milestones
+        milestoneResults = this.checkMilestone(batsman, this.scores[batsman].runs);
+
+        commentary = (COMMENTARY_RUNS[batNum] || [])[Math.floor(Math.random() * (COMMENTARY_RUNS[batNum] || ['🏏 Runs scored!']).length)] || '🏏 Runs scored!';
+      }
+    }
+
+    // Check bowling rotation at end of over
+    if (this.ballsThisOver >= 6) {
+      this.updateBowlingRotation();
     }
 
     this.lastCommentary = commentary;
 
     let result;
 
-    if (isOut) {
+    if (isOut || catchOut) {
+      const outType = catchOut ? 'catch_out' : 'out';
       result = {
         success: true,
-        message: 'out',
+        message: outType,
         batNum,
         bowlNum,
         batsman,
@@ -645,7 +1060,17 @@ class HandCricketGame {
         balls: this.scores[batsman].balls,
         commentary,
         isHatTrick: this.consecutiveWickets >= 3,
+        isCatchOut: catchOut,
+        catchResult: catchOut ? catchResult : null,
+        milestoneResults,
+        isDuck: this.scores[batsman].runs === 0 && this.scores[batsman].balls === 1,
       };
+
+      // Get appropriate GIF for wicket
+      result.gif = CELEBRATION_GIFS.wicket[Math.floor(Math.random() * CELEBRATION_GIFS.wicket.length)];
+      if (catchOut) {
+        result.gif = CELEBRATION_GIFS.catch[Math.floor(Math.random() * CELEBRATION_GIFS.catch.length)];
+      }
 
       if (this.scores[batsman].wickets >= this.maxWickets || this.scores[batsman].balls >= this.maxBalls) {
         result.inningsOver = true;
@@ -667,7 +1092,18 @@ class HandCricketGame {
         isFour: batNum === 4,
         isSix: batNum === 6,
         commentary,
+        milestoneResults,
+        catchDropped: catchResult && !catchResult.success,
+        catchResult: catchResult && !catchResult.success ? catchResult : null,
+        strikeRotated: this.strikeRotated,
       };
+
+      // Get GIF for boundaries
+      if (batNum === 6) {
+        result.gif = CELEBRATION_GIFS.six[Math.floor(Math.random() * CELEBRATION_GIFS.six.length)];
+      } else if (batNum === 4) {
+        result.gif = CELEBRATION_GIFS.four[Math.floor(Math.random() * CELEBRATION_GIFS.four.length)];
+      }
 
       // 2nd innings chase check
       if (this.currentInnings === 2) {
@@ -679,6 +1115,7 @@ class HandCricketGame {
           result.loser = bowler;
           this.phase = GAME_PHASE.ENDED;
           result.gameOverCommentary = COMMENTARY_GAME_OVER_WIN[Math.floor(Math.random() * COMMENTARY_GAME_OVER_WIN.length)];
+          result.gif = CELEBRATION_GIFS.matchWin[Math.floor(Math.random() * CELEBRATION_GIFS.matchWin.length)];
         }
       }
 
@@ -690,7 +1127,7 @@ class HandCricketGame {
     }
 
     // Calculate economy rewards for this ball
-    result.economyBonus = this.calculateBallEconomy(batNum, isOut);
+    result.economyBonus = this.calculateBallEconomy(batNum, isOut || catchOut);
 
     return result;
   }
@@ -714,30 +1151,42 @@ class HandCricketGame {
       [this.players[1]]: ECONOMY.PLAY_REWARD,
     };
 
-    // Win bonus
     if (winnerId) {
       rewards[winnerId] += ECONOMY.WIN_BONUS;
     }
 
-    // Boundary bonuses
     for (const pid of this.players) {
       if (!pid.startsWith('BOT_')) {
         rewards[pid] += (this.scores[pid].fours || 0) * ECONOMY.FOUR_BONUS;
         rewards[pid] += (this.scores[pid].sixes || 0) * ECONOMY.SIX_BONUS;
+        rewards[pid] += (this.scores[pid].catches || 0) * ECONOMY.CATCH_BONUS;
 
-        // Century bonus (36+ runs in 6 overs = century equivalent)
+        // Century bonus
         if (this.scores[pid].runs >= 36) {
           rewards[pid] += ECONOMY.CENTURY_BONUS;
         }
-
-        // Duck (0 runs)
-        if (this.scores[pid].runs === 0 && this.scores[pid].balls > 0) {
-          // No extra penalty, just no run bonus
+        // Half century bonus
+        if (this.scores[pid].runs >= 50) {
+          rewards[pid] += ECONOMY.MILESTONE_50_BONUS;
+        }
+        // Full century bonus
+        if (this.scores[pid].runs >= 100) {
+          rewards[pid] += ECONOMY.MILESTONE_100_BONUS;
         }
       }
     }
 
-    // Remove rewards for bot players
+    // Add milestone bonuses that were tracked
+    for (const milestone of this.milestonesReached) {
+      const [pid] = milestone.split('_');
+      if (!pid.startsWith('BOT_') && rewards[pid] !== undefined) {
+        const runThreshold = parseInt(milestone.split('_')[1]);
+        if (runThreshold === 50) rewards[pid] += ECONOMY.MILESTONE_50_BONUS;
+        if (runThreshold === 100) rewards[pid] += ECONOMY.MILESTONE_100_BONUS;
+        if (runThreshold === 200) rewards[pid] += ECONOMY.MILESTONE_100_BONUS * 2;
+      }
+    }
+
     for (const pid of this.players) {
       if (pid.startsWith('BOT_')) {
         delete rewards[pid];
@@ -755,6 +1204,18 @@ class HandCricketGame {
       this.currentInnings = 2;
       this.battingNow = this.bowlingFirst;
       this.bowlingNow = this.battingFirst;
+
+      // Reset strike/non-strike for new innings
+      this.striker = this.battingNow;
+      this.nonStriker = this.bowlingNow;
+
+      // Reset bowling rotation for new innings
+      this.bowlerOrder = [this.bowlingNow];
+      this.currentBowlerIdx = 0;
+      this.currentOverBowler = this.bowlingNow;
+      this.ballsThisOver = 0;
+      this.bowlerStats[this.bowlingNow] = { balls: 0, runs: 0, wickets: 0, overs: 0 };
+
       this.phase = GAME_PHASE.INNINGS_BREAK;
       this.consecutiveWickets = 0;
       this.lastActivity = Date.now();
@@ -784,6 +1245,7 @@ class HandCricketGame {
       }
 
       this.phase = GAME_PHASE.ENDED;
+      this.endTime = Date.now();
       this.clearTimers();
 
       const isTie = winner === null;
@@ -823,13 +1285,11 @@ class HandCricketGame {
   handleTurnTimeout() {
     if (this.phase !== GAME_PHASE.PLAYING) return null;
 
-    // Figure out who didn't play yet
     const battingPlayed = this.currentNumbers[this.battingNow] !== undefined;
     const bowlingPlayed = this.currentNumbers[this.bowlingNow] !== undefined;
 
     let timedOutPlayer;
     if (!battingPlayed && !bowlingPlayed) {
-      // Both timed out — batsman is out
       timedOutPlayer = this.battingNow;
     } else if (!battingPlayed) {
       timedOutPlayer = this.battingNow;
@@ -852,7 +1312,6 @@ class HandCricketGame {
       balls: this.scores[this.battingNow].balls,
     };
 
-    // Check if innings over
     if (this.scores[this.battingNow].wickets >= this.maxWickets || this.scores[this.battingNow].balls >= this.maxBalls) {
       result.inningsOver = true;
       const inningsResult = this.handleInningsEnd();
@@ -868,8 +1327,8 @@ class HandCricketGame {
   handleInactivityTimeout() {
     this.clearTimers();
     this.phase = GAME_PHASE.ENDED;
+    this.endTime = Date.now();
 
-    // Current leader wins
     const p1Runs = this.scores[this.players[0]].runs;
     const p2Runs = this.scores[this.players[1]].runs;
     let winner = null;
@@ -893,6 +1352,7 @@ class HandCricketGame {
     }
     this.clearTimers();
     this.phase = GAME_PHASE.ENDED;
+    this.endTime = Date.now();
     const winner = this.players.find(p => p !== userId);
     return { success: true, quitter: userId, winner };
   }
@@ -914,7 +1374,7 @@ class HandCricketGame {
   }
 
   /**
-   * Get formatted scorecard
+   * Get formatted scorecard with enhanced stats
    */
   getFormattedScorecard(playerNames) {
     const p1 = this.scores[this.players[0]];
@@ -925,7 +1385,7 @@ class HandCricketGame {
     const formatScore = (s) => {
       const overs = `${Math.floor(s.balls / 6)}.${s.balls % 6}`;
       const sr = s.balls > 0 ? ((s.runs / s.balls) * 100).toFixed(1) : '0.0';
-      return `${s.runs}/${s.wickets} (${overs} ov) | SR: ${sr} | 4s: ${s.fours} | 6s: ${s.sixes}`;
+      return `${s.runs}/${s.wickets} (${overs} ov) | SR: ${sr} | 4s: ${s.fours} | 6s: ${s.sixes} | Catches: ${s.catches || 0}`;
     };
 
     return {
@@ -951,8 +1411,33 @@ class HandCricketGame {
       balls: score.balls,
       fours: score.fours || 0,
       sixes: score.sixes || 0,
+      catches: score.catches || 0,
       overs: `${Math.floor(score.balls / 6)}.${score.balls % 6}`,
       won,
+    };
+  }
+
+  /**
+   * Get match history entry
+   */
+  getMatchHistory() {
+    return {
+      matchId: this.matchId,
+      players: this.players.map(p => p.startsWith('BOT_') ? (this.botProfile?.name || 'Bot') : p),
+      scores: {
+        [this.players[0]]: { ...this.scores[this.players[0]] },
+        [this.players[1]]: { ...this.scores[this.players[1]] },
+      },
+      winner: this.getWinner(),
+      overs: this.maxOvers,
+      wickets: this.maxWickets,
+      startTime: this.startTime,
+      endTime: this.endTime || Date.now(),
+      catchChances: this.catchChances,
+      catchesTaken: this.catchesTaken,
+      catchesDropped: this.catchesDropped,
+      milestones: this.milestonesReached,
+      ballLog: this.ballLog.slice(-20), // Last 20 balls only for history
     };
   }
 
@@ -984,6 +1469,15 @@ class HandCricketGame {
     const elapsed = (Date.now() - this.turnStartTime) / 1000;
     return Math.max(0, MATCH_TURN_TIMEOUT - Math.floor(elapsed));
   }
+
+  /**
+   * Get selection deadline remaining time
+   */
+  getSelectionTimeRemaining() {
+    if (!this.selectionDeadline) return null;
+    const remaining = (this.selectionDeadline - Date.now()) / 1000;
+    return Math.max(0, Math.floor(remaining));
+  }
 }
 
 /* ═══════════════════════════════════════════
@@ -1010,7 +1504,6 @@ class ProfileManager {
       }
 
       if (data) {
-        // Update username if changed
         if (data.username !== username && username) {
           await this.supabase
             .from('hc_profiles')
@@ -1021,7 +1514,6 @@ class ProfileManager {
         return data;
       }
 
-      // Create new profile
       const { data: newProfile, error: insertError } = await this.supabase
         .from('hc_profiles')
         .insert({
@@ -1035,6 +1527,7 @@ class ProfileManager {
           total_balls: 0,
           total_fours: 0,
           total_sixes: 0,
+          total_catches: 0,
           win_streak: 0,
           best_win_streak: 0,
         })
@@ -1071,6 +1564,7 @@ class ProfileManager {
         total_balls: profile.total_balls + gameSummary.balls,
         total_fours: profile.total_fours + (gameSummary.fours || 0),
         total_sixes: profile.total_sixes + (gameSummary.sixes || 0),
+        total_catches: (profile.total_catches || 0) + (gameSummary.catches || 0),
         win_streak: newWinStreak,
         best_win_streak: bestStreak,
       };
@@ -1084,6 +1578,47 @@ class ProfileManager {
     } catch (err) {
       console.error('Profile update error:', err.message);
       return null;
+    }
+  }
+
+  async saveMatchHistory(matchHistory) {
+    if (!this.supabase) return;
+    try {
+      await this.supabase
+        .from('hc_match_history')
+        .insert({
+          match_id: matchHistory.matchId,
+          players: matchHistory.players,
+          scores: matchHistory.scores,
+          winner: matchHistory.winner,
+          overs: matchHistory.overs,
+          wickets: matchHistory.wickets,
+          start_time: new Date(matchHistory.startTime).toISOString(),
+          end_time: new Date(matchHistory.endTime).toISOString(),
+          catch_chances: matchHistory.catchChances,
+          catches_taken: matchHistory.catchesTaken,
+          catches_dropped: matchHistory.catchesDropped,
+          milestones: matchHistory.milestones,
+        });
+    } catch (err) {
+      console.error('Match history save error:', err.message);
+    }
+  }
+
+  async getMatchHistory(userId, limit = 10) {
+    if (!this.supabase) return [];
+    try {
+      const { data, error } = await this.supabase
+        .from('hc_match_history')
+        .select('*')
+        .contains('players', [userId])
+        .order('start_time', { ascending: false })
+        .limit(limit);
+
+      if (error) return [];
+      return data || [];
+    } catch (err) {
+      return [];
     }
   }
 
@@ -1125,12 +1660,11 @@ class ProfileManager {
       const { data, error } = await this.supabase
         .from('hc_profiles')
         .select('*')
-        .gte('games_played', 3) // minimum 3 games to qualify
+        .gte('games_played', 3)
         .limit(50);
 
       if (error) return [];
 
-      // Sort by win rate
       const sorted = (data || []).sort((a, b) => {
         const rateA = a.games_played > 0 ? a.games_won / a.games_played : 0;
         const rateB = b.games_played > 0 ? b.games_won / b.games_played : 0;
@@ -1145,6 +1679,195 @@ class ProfileManager {
 }
 
 /* ═══════════════════════════════════════════
+   🏟️ Tournament System
+   ═══════════════════════════════════════════ */
+
+class TournamentManager {
+  constructor() {
+    this.tournaments = new Map(); // tournamentName → Tournament
+  }
+
+  create(name, creatorId, channelId, guildId, options = {}) {
+    if (this.tournaments.has(name)) {
+      return { success: false, message: '🚫 A tournament with that name already exists!' };
+    }
+
+    const tournament = {
+      name,
+      creatorId,
+      channelId,
+      guildId,
+      players: [creatorId],
+      bracket: [],
+      currentRound: 0,
+      maxPlayers: options.maxPlayers || 8,
+      overs: options.overs || 1,
+      wickets: options.wickets || 2,
+      status: 'registration', // registration, in_progress, completed
+      winner: null,
+      createdAt: Date.now(),
+    };
+
+    this.tournaments.set(name, tournament);
+    return { success: true, tournament };
+  }
+
+  join(name, userId) {
+    const tournament = this.tournaments.get(name);
+    if (!tournament) return { success: false, message: '🚫 Tournament not found!' };
+    if (tournament.status !== 'registration') return { success: false, message: '🚫 Registration is closed!' };
+    if (tournament.players.includes(userId)) return { success: false, message: '🚫 You already joined!' };
+    if (tournament.players.length >= tournament.maxPlayers) return { success: false, message: '🚫 Tournament is full!' };
+
+    tournament.players.push(userId);
+    return { success: true, playerCount: tournament.players.length, maxPlayers: tournament.maxPlayers };
+  }
+
+  leave(name, userId) {
+    const tournament = this.tournaments.get(name);
+    if (!tournament) return { success: false, message: '🚫 Tournament not found!' };
+    if (tournament.status !== 'registration') return { success: false, message: '🚫 Cannot leave — tournament already started!' };
+    if (!tournament.players.includes(userId)) return { success: false, message: '🚫 You are not in this tournament!' };
+    if (userId === tournament.creatorId) return { success: false, message: '🚫 The creator cannot leave! Use delete instead.' };
+
+    tournament.players = tournament.players.filter(p => p !== userId);
+    return { success: true, playerCount: tournament.players.length };
+  }
+
+  start(name) {
+    const tournament = this.tournaments.get(name);
+    if (!tournament) return { success: false, message: '🚫 Tournament not found!' };
+    if (tournament.status !== 'registration') return { success: false, message: '🚫 Tournament already started!' };
+    if (tournament.players.length < 2) return { success: false, message: '🚫 Need at least 2 players!' };
+
+    // Check if player count is power of 2, if not fill with byes
+    let playerCount = tournament.players.length;
+    // Shuffle players
+    tournament.players = tournament.players.sort(() => Math.random() - 0.5);
+
+    // Create bracket
+    tournament.bracket = [];
+    const numRounds = Math.ceil(Math.log2(playerCount));
+    let currentRound = [];
+
+    for (let i = 0; i < tournament.players.length; i += 2) {
+      const match = {
+        player1: tournament.players[i],
+        player2: tournament.players[i + 1] || null, // null = bye
+        winner: null,
+        round: 1,
+      };
+      currentRound.push(match);
+    }
+
+    tournament.bracket.push(currentRound);
+    tournament.currentRound = 1;
+    tournament.status = 'in_progress';
+
+    return { success: true, tournament, numRounds, firstRoundMatches: currentRound };
+  }
+
+  getTournament(name) {
+    return this.tournaments.get(name);
+  }
+
+  delete(name, userId) {
+    const tournament = this.tournaments.get(name);
+    if (!tournament) return { success: false, message: '🚫 Tournament not found!' };
+    if (tournament.creatorId !== userId) return { success: false, message: '🚫 Only the creator can delete!' };
+    this.tournaments.delete(name);
+    return { success: true };
+  }
+
+  list() {
+    const list = [];
+    for (const [name, t] of this.tournaments) {
+      list.push({
+        name,
+        players: t.players.length,
+        maxPlayers: t.maxPlayers,
+        status: t.status,
+        creator: t.creatorId,
+      });
+    }
+    return list;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   🔒 Private Lobby System
+   ═══════════════════════════════════════════ */
+
+class LobbyManager {
+  constructor() {
+    this.lobbies = new Map(); // lobbyCode → Lobby
+  }
+
+  create(creatorId, channelId, guildId, password = null) {
+    const code = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const lobby = {
+      code,
+      creatorId,
+      channelId,
+      guildId,
+      password,
+      players: [creatorId],
+      maxPlayers: 2,
+      overs: 1,
+      wickets: 2,
+      status: 'waiting', // waiting, playing
+      createdAt: Date.now(),
+    };
+
+    this.lobbies.set(code, lobby);
+    return { success: true, code, lobby };
+  }
+
+  join(code, userId, password = null) {
+    const lobby = this.lobbies.get(code);
+    if (!lobby) return { success: false, message: '🚫 Lobby not found! Check the code.' };
+    if (lobby.password && lobby.password !== password) return { success: false, message: '🚫 Wrong password!' };
+    if (lobby.players.includes(userId)) return { success: false, message: '🚫 You are already in this lobby!' };
+    if (lobby.players.length >= lobby.maxPlayers) return { success: false, message: '🚫 Lobby is full!' };
+    if (lobby.status !== 'waiting') return { success: false, message: '🚫 Game already in progress!' };
+
+    lobby.players.push(userId);
+    return { success: true, lobby };
+  }
+
+  leave(code, userId) {
+    const lobby = this.lobbies.get(code);
+    if (!lobby) return { success: false, message: '🚫 Lobby not found!' };
+    if (!lobby.players.includes(userId)) return { success: false, message: '🚫 You are not in this lobby!' };
+
+    lobby.players = lobby.players.filter(p => p !== userId);
+    if (lobby.players.length === 0) {
+      this.lobbies.delete(code);
+      return { success: true, deleted: true };
+    }
+    if (lobby.creatorId === userId) {
+      lobby.creatorId = lobby.players[0];
+    }
+    return { success: true };
+  }
+
+  getLobby(code) {
+    return this.lobbies.get(code);
+  }
+
+  getByPlayer(userId) {
+    for (const [code, lobby] of this.lobbies) {
+      if (lobby.players.includes(userId)) return { code, lobby };
+    }
+    return null;
+  }
+
+  delete(code) {
+    this.lobbies.delete(code);
+  }
+}
+
+/* ═══════════════════════════════════════════
    💰 Economy Helper — Grant INR rewards
    ═══════════════════════════════════════════ */
 
@@ -1153,7 +1876,6 @@ async function grantEconomyRewards(supabase, economyRewards) {
   for (const [userId, amount] of Object.entries(economyRewards)) {
     if (userId.startsWith('BOT_') || amount <= 0) continue;
     try {
-      // Use the wallet system to add INR
       const { data: wallet } = await supabase
         .from('wallets')
         .select('balance')
@@ -1180,6 +1902,8 @@ module.exports = {
   HandCricketGame,
   GAME_PHASE,
   ProfileManager,
+  TournamentManager,
+  LobbyManager,
   EMOJI_NUMBERS,
   SLEDGE_MESSAGES,
   BOT_PROFILES,
@@ -1189,6 +1913,11 @@ module.exports = {
   COMMENTARY_INNINGS_BREAK,
   COMMENTARY_GAME_OVER_WIN,
   COMMENTARY_GAME_OVER_TIE,
+  CATCH_COMBOS,
+  CATCH_COMMENTARY_SUCCESS,
+  CATCH_COMMENTARY_DROPPED,
+  CELEBRATION_GIFS,
+  MILESTONE_MESSAGES,
   ECONOMY,
   MATCH_TURN_TIMEOUT,
   MATCH_INACTIVITY_TIMEOUT,
