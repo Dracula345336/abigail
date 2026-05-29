@@ -30,6 +30,11 @@ const fs = require('fs');
 const path = require('path');
 
 /* ═══════════════════════════════════════════
+   🎵 Music Engine Import
+   ═══════════════════════════════════════════ */
+const { initMusic, handleMusicButton, musicState, MUSIC_COLORS, MUSIC_EMOJIS } = require('./music');
+
+/* ═══════════════════════════════════════════
    ✅  Environment Validation
    ═══════════════════════════════════════════ */
 
@@ -71,7 +76,7 @@ const {
   COMMENTARY_POWERPLAY, COMMENTARY_SUPER_OVER,
   CATCH_COMMENTARY_SUCCESS, CATCH_COMMENTARY_DROPPED,
   CELEBRATION_GIFS, MILESTONE_MESSAGES, MILESTONES,
-  ECONOMY, MMR, COLORS,
+  ECONOMY, MMR, COLORS, CRICKET_LEGENDS,
   MATCH_TURN_TIMEOUT, MATCH_INACTIVITY_TIMEOUT,
   grantEconomyRewards,
 } = require('./handcricket');
@@ -545,8 +550,9 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,      // ✅ FIX: Required to receive DM messages for Hand Cricket number selection
+    GatewayIntentBits.DirectMessages,      // Required for Werewolf DM actions (Hand Cricket now uses channel buttons)
     GatewayIntentBits.DirectMessageReactions,
+    GatewayIntentBits.GuildVoiceStates,    // Required for Music — voice channel tracking
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
@@ -583,7 +589,19 @@ client.mimicAccess = new Map();
 client.once(Events.ClientReady, async () => {
   console.log(`💖 ${client.user.tag} is online and spreading love!`);
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
-  client.user.setActivity('💕 Watching over you');
+  client.user.setActivity('💕 Watching over you | 🎵 /music');
+
+  /* ── 🎵 Initialize Music Engine (DisTube) ── */
+  try {
+    const dt = initMusic(client);
+    if (dt) {
+      console.log('🎵 Music system ready — /music commands available!');
+    } else {
+      console.warn('⚠️  Music system failed to initialize. Check distube dependencies.');
+    }
+  } catch (musicErr) {
+    console.warn('⚠️  Music system error:', musicErr.message);
+  }
 
   if (!process.env.CLIENT_ID) {
     console.error('⚠️  CLIENT_ID not set — slash commands will NOT be registered!');
@@ -633,6 +651,24 @@ client.on('interactionCreate', async (interaction) => {
   /* ── Button Interactions ── */
   if (interaction.isButton()) {
     const customId = interaction.customId;
+
+    /* ── 🎵 Music Buttons ── */
+    if (customId.startsWith('mu_')) {
+      try {
+        await handleMusicButton(interaction, customId);
+      } catch (error) {
+        console.error('Music button handler error:', error);
+        try {
+          const reply = { content: '🎵 Music button error!', flags: MessageFlags.Ephemeral };
+          interaction.replied || interaction.deferred
+            ? await interaction.followUp(reply)
+            : await interaction.reply(reply);
+        } catch (e) {}
+      }
+      return;
+    }
+
+    /* ── 🏏 Hand Cricket Buttons ── */
     if (!customId.startsWith('hc_')) return;
 
     try {
@@ -680,20 +716,11 @@ async function handleHCButton(interaction, customId) {
         `Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n` +
         `┣ 🪙 **Toss Time!**\n` +
         `┣ 👇 Both players: Click **Odd** or **Even**!\n` +
-        `┗ Then choose a number (1-6) in DM!`
+        `┗ Your choices are secret — confirmed via ephemeral!`
       )
-      .setFooter({ text: '🏏 Interactive Hand Cricket' })
+      .setFooter({ text: '🏏 Interactive Hand Cricket | No DM needed!' })
       .setTimestamp();
     await interaction.update({ embeds: [acceptEmbed], components: [getTossButtons(channelId, false)] });
-
-    // DM both players about toss
-    for (const pid of game.players) {
-      try {
-        await client.users.cache.get(pid)?.send({
-          embeds: [new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🪙 Toss Time!').setDescription('Click **Odd** or **Even** in the channel!\nThen check DMs for number selection!').setTimestamp()]
-        });
-      } catch (e) {}
-    }
     return;
   }
 
@@ -757,7 +784,7 @@ async function handleHCButton(interaction, customId) {
           `━━━━━━━━━━━━━━━━━━━\n` +
           `┣ 🤖 **${game.botProfile.name}**: **${botChose === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**\n` +
           `┣ 🏏 **You:** ${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}\n` +
-          `┗ 📨 Check your DMs — choose a number (1-6)!`
+          `┗ 👇 Click a number button below to play!`
         )
         .setFooter({ text: '🏏 Match Started!' })
         .setTimestamp();
@@ -765,15 +792,18 @@ async function handleHCButton(interaction, customId) {
 
       game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
 
-      // DM the player with number buttons
-      try {
-        await client.users.cache.get(userId)?.send({
-          embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Match Started!').setDescription(`You are **${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\nClick a number button below to play!\n⏱️ **${MATCH_TURN_TIMEOUT}s** per ball!`).setTimestamp()],
-          components: getNumberButtons(channelId),
-        });
-      } catch (e) {
-        await interaction.channel.send(`⚠️ Could not DM <@${userId}> — enable DMs!`);
-      }
+      // Send number buttons in the channel
+      const matchStartEmbed = new EmbedBuilder()
+        .setColor(COLORS.SUCCESS)
+        .setTitle('🏏 Match Started!')
+        .setDescription(
+          `You are **${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\n` +
+          `👇 Click a number button below to play!\n` +
+          `⏱️ **${MATCH_TURN_TIMEOUT}s** per ball!`
+        )
+        .setFooter({ text: '🏏 Interactive Hand Cricket | No DM needed!' })
+        .setTimestamp();
+      await interaction.channel.send({ embeds: [matchStartEmbed], components: getNumberButtons(channelId) });
     }
     return;
   }
@@ -811,7 +841,7 @@ async function handleHCButton(interaction, customId) {
           `━━━━━━━━━━━━━━━━━━━\n` +
           `┣ 🤖 **${game.botProfile.name}**: **${botChose === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**\n` +
           `┣ 🏏 **You:** ${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}\n` +
-          `┗ 📨 Check your DMs — choose a number!`
+          `┗ 👇 Click a number button below to play!`
         )
         .setFooter({ text: '🏏 Match Started!' })
         .setTimestamp();
@@ -819,14 +849,18 @@ async function handleHCButton(interaction, customId) {
 
       game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
 
-      try {
-        await client.users.cache.get(userId)?.send({
-          embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Match Started!').setDescription(`You are **${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\nClick a number button below!\n⏱️ **${MATCH_TURN_TIMEOUT}s** per ball!`).setTimestamp()],
-          components: getNumberButtons(channelId),
-        });
-      } catch (e) {
-        await interaction.channel.send(`⚠️ Could not DM <@${userId}> — enable DMs!`);
-      }
+      // Send number buttons in the channel
+      const matchStartEmbed = new EmbedBuilder()
+        .setColor(COLORS.SUCCESS)
+        .setTitle('🏏 Match Started!')
+        .setDescription(
+          `You are **${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\n` +
+          `👇 Click a number button below to play!\n` +
+          `⏱️ **${MATCH_TURN_TIMEOUT}s** per ball!`
+        )
+        .setFooter({ text: '🏏 Interactive Hand Cricket | No DM needed!' })
+        .setTimestamp();
+      await interaction.channel.send({ embeds: [matchStartEmbed], components: getNumberButtons(channelId) });
     }
     return;
   }
@@ -854,23 +888,24 @@ async function handleHCButton(interaction, customId) {
           `━━━━━━━━━━━━━━━━━━━\n` +
           `┣ **${p1Name}**: ${result.p1Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
           `┣ **${p2Name}**: ${result.p2Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
-          `┗ 📨 **Check DMs — click a number (1-6)!**`
+          `┗ 👇 **Click a number (1-6) below!**`
         )
-        .setFooter({ text: '🏏 Secret number selection in DM!' })
+        .setFooter({ text: '🏏 No DM needed — click below!' })
         .setTimestamp();
       await interaction.update({ embeds: [tossReadyEmbed], components: [] });
 
-      // DM both players with number buttons
-      for (const pid of game.players) {
-        try {
-          await client.users.cache.get(pid)?.send({
-            embeds: [new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🪙 Toss — Choose Your Number!').setDescription('Click a number **1-6** for the toss!\nYour choice is secret!').setTimestamp()],
-            components: getNumberButtons(channelId),
-          });
-        } catch (e) {
-          await interaction.channel?.send(`⚠️ Could not DM <@${pid}> — enable DMs!`);
-        }
-      }
+      // Send number buttons in the channel
+      const tossNumberEmbed = new EmbedBuilder()
+        .setColor(COLORS.GOLD)
+        .setTitle('🪙 Toss — Choose Your Number!')
+        .setDescription(
+          `Both players have chosen Odd/Even!\n\n` +
+          `👇 Each player: Click a number **1-6** below!\n` +
+          `Your choice is **secret** — only you can see your confirmation!`
+        )
+        .setFooter({ text: '🏏 No DM needed — click below!' })
+        .setTimestamp();
+      await interaction.channel.send({ embeds: [tossNumberEmbed], components: getNumberButtons(channelId) });
       return;
     }
     return;
@@ -899,22 +934,24 @@ async function handleHCButton(interaction, customId) {
           `━━━━━━━━━━━━━━━━━━━\n` +
           `┣ **${p1Name}**: ${result.p1Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
           `┣ **${p2Name}**: ${result.p2Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
-          `┗ 📨 **Check DMs — click a number (1-6)!**`
+          `┗ 👇 **Click a number (1-6) below!**`
         )
-        .setFooter({ text: '🏏 Secret number selection in DM!' })
+        .setFooter({ text: '🏏 No DM needed — click below!' })
         .setTimestamp();
       await interaction.update({ embeds: [tossReadyEmbed], components: [] });
 
-      for (const pid of game.players) {
-        try {
-          await client.users.cache.get(pid)?.send({
-            embeds: [new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🪙 Toss — Choose Your Number!').setDescription('Click a number **1-6** for the toss!\nYour choice is secret!').setTimestamp()],
-            components: getNumberButtons(channelId),
-          });
-        } catch (e) {
-          await interaction.channel?.send(`⚠️ Could not DM <@${pid}> — enable DMs!`);
-        }
-      }
+      // Send number buttons in the channel
+      const tossNumberEmbed = new EmbedBuilder()
+        .setColor(COLORS.GOLD)
+        .setTitle('🪙 Toss — Choose Your Number!')
+        .setDescription(
+          `Both players have chosen Odd/Even!\n\n` +
+          `👇 Each player: Click a number **1-6** below!\n` +
+          `Your choice is **secret** — only you can see your confirmation!`
+        )
+        .setFooter({ text: '🏏 No DM needed — click below!' })
+        .setTimestamp();
+      await interaction.channel.send({ embeds: [tossNumberEmbed], components: getNumberButtons(channelId) });
       return;
     }
     return;
@@ -944,7 +981,7 @@ async function handleHCButton(interaction, customId) {
     return;
   }
 
-  /* ── Number Selection: 1-6 (via DM buttons) ── */
+  /* ── Number Selection: 1-6 (via channel buttons) ── */
   if (actionCode.startsWith('n') && actionCode.length === 2) {
     const num = parseInt(actionCode[1]);
     if (isNaN(num) || num < 1 || num > 6) return;
@@ -982,13 +1019,6 @@ async function handleHCButton(interaction, customId) {
           .setTimestamp();
         await channel.send({ embeds: [tossEmbed], components: [getBatBowlButtons(channelId)] });
 
-        // DM toss winner about choice
-        try {
-          await client.users.cache.get(result.winner)?.send({
-            embeds: [new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🏆 You Won the Toss!').setDescription('Click **Bat** or **Bowl** in the channel!').setTimestamp()]
-          });
-        } catch (e) {}
-
         await interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🪙 Toss Resolved!').setDescription(`You chose ${num}. Toss result posted in channel!`).setTimestamp()], flags: MessageFlags.Ephemeral });
         return;
       }
@@ -1006,19 +1036,14 @@ async function handleHCButton(interaction, customId) {
       if (!result.success) return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.DANGER).setDescription(result.message).setTimestamp()], flags: MessageFlags.Ephemeral });
 
       if (result.message === 'waiting_for_opponent') {
-        // Notify opponent to choose
-        const opponentId = isBatting ? game.bowlingNow : game.battingNow;
-        const timeLeft = game.getSelectionTimeRemaining() || MATCH_TURN_TIMEOUT;
-        if (!opponentId?.startsWith('BOT_')) {
-          try {
-            const oppIsBatting = opponentId === game.battingNow;
-            await client.users.cache.get(opponentId)?.send({
-              embeds: [new EmbedBuilder().setColor(COLORS.WARNING).setTitle('🏏 Your Turn! Choose NOW!').setDescription(`Opponent has chosen!\nYou are **${oppIsBatting ? 'Batting 🏏' : 'Bowling 🎯'}**\n\nClick a number below!\n⏱️ **${timeLeft}s** left!`).setTimestamp()],
-              components: getNumberButtons(channelId),
-            });
-          } catch (e) {}
-        }
-        return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**! (${isBatting ? '🏏 Batting' : '🎯 Bowling'})\n⏱️ ${timeLeft}s left!`).setTimestamp()], flags: MessageFlags.Ephemeral });
+        // Ephemeral confirmation — opponent can see the channel buttons
+        return interaction.reply({ 
+          embeds: [new EmbedBuilder().setColor(COLORS.ACCENT)
+            .setTitle('✅ Number Recorded!')
+            .setDescription(`You chose **${num}**! (${isBatting ? '🏏 Batting' : '🎯 Bowling'})\nWaiting for opponent...`)
+            .setTimestamp()], 
+          flags: MessageFlags.Ephemeral 
+        });
       }
 
       // Ball resolved!
@@ -1100,24 +1125,21 @@ async function handleHCButton(interaction, customId) {
     game.startSecondInnings();
     game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
 
+    const nextBatName = client.users.cache.get(game.battingNow)?.username || game.botProfile?.name || 'Player';
+    const nextBowlName = client.users.cache.get(game.bowlingNow)?.username || game.botProfile?.name || 'Player';
+
     const startEmbed = new EmbedBuilder()
       .setColor(COLORS.SUCCESS)
       .setTitle('🏏 2nd Innings Started!')
-      .setDescription('Check your DMs — choose your number!')
+      .setDescription(
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `┣ 🏏 **Batting:** ${nextBatName}\n` +
+        `┣ 🎯 **Bowling:** ${nextBowlName}\n` +
+        `┗ 👇 Click a number button below to play!`
+      )
+      .setFooter({ text: '🏏 No DM needed — click below!' })
       .setTimestamp();
-    await interaction.update({ embeds: [startEmbed], components: [] });
-
-    // DM both players
-    for (const pid of game.players) {
-      if (pid.startsWith('BOT_')) continue;
-      try {
-        const isBatsman = pid === game.battingNow;
-        await client.users.cache.get(pid)?.send({
-          embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 2nd Innings!').setDescription(`You are **${isBatsman ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\nClick a number below!`).setTimestamp()],
-          components: getNumberButtons(channelId),
-        });
-      } catch (e) {}
-    }
+    await interaction.update({ embeds: [startEmbed], components: getNumberButtons(channelId) });
     return;
   }
 
@@ -1147,7 +1169,7 @@ async function sendMatchStartMessage(interaction, game, choice) {
   const batName = client.users.cache.get(game.battingFirst)?.username || game.botProfile?.name || 'Player';
   const bowlName = client.users.cache.get(game.bowlingFirst)?.username || game.botProfile?.name || 'Player';
 
-  const startEmbed = new EmbedBuilder()
+  const matchEmbed = new EmbedBuilder()
     .setColor(COLORS.SUCCESS)
     .setTitle('🏏 Match Started!')
     .setDescription(
@@ -1155,35 +1177,21 @@ async function sendMatchStartMessage(interaction, game, choice) {
       `┣ 🏏 **Batting:** ${batName}\n` +
       `┣ 🎯 **Bowling:** ${bowlName}\n` +
       `┣ 📏 **${game.maxOvers} over${game.maxOvers > 1 ? 's' : ''}**, **${game.maxWickets} wicket${game.maxWickets > 1 ? 's' : ''}**\n` +
-      `${game.powerplayEnabled ? '┣ ⚡ **Powerplay Active!**\n' : ''}` +
-      `${game.isRanked ? '┣ 🏆 **Ranked Match!**\n' : ''}` +
-      `┣ 🧤 **Catch System:** Active!\n` +
-      `┗ 📨 Check your DMs — choose a number!`
+      `${game.isPowerplayActive ? '┣ ⚡ **POWERPLAY ACTIVE!**\n' : ''}` +
+      `${game.isRanked ? '┣ 🏆 **RANKED MATCH!**\n' : ''}` +
+      `┣ 👇 **Click a number (1-6) to play!**\n` +
+      `┗ ⏱️ ${MATCH_TURN_TIMEOUT}s per ball!`
     )
-    .setFooter({ text: `🏏 ⏱️ ${MATCH_TURN_TIMEOUT}s per ball` })
+    .setFooter({ text: '🏏 Interactive Hand Cricket | No DM needed!' })
     .setTimestamp();
 
   if (interaction.replied || interaction.deferred) {
-    await interaction.channel.send({ embeds: [startEmbed] });
+    await interaction.channel.send({ embeds: [matchEmbed], components: getNumberButtons(game.channelId) });
   } else {
-    await interaction.update({ embeds: [startEmbed], components: [] });
+    await interaction.update({ embeds: [matchEmbed], components: getNumberButtons(game.channelId) });
   }
 
   game.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
-
-  // DM players with number buttons
-  for (const pid of game.players) {
-    if (pid.startsWith('BOT_')) continue;
-    try {
-      const isBatsman = pid === game.battingNow;
-      await client.users.cache.get(pid)?.send({
-        embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Match Started!').setDescription(`You are **${isBatsman ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\nClick a number button below!\n⏱️ **${MATCH_TURN_TIMEOUT}s** per ball!`).setTimestamp()],
-        components: getNumberButtons(channelId),
-      });
-    } catch (e) {
-      await interaction.channel?.send(`⚠️ Could not DM <@${pid}> — enable DMs!`);
-    }
-  }
 }
 
 /* ── Helper: Handle ball result and post to channel ── */
@@ -1307,21 +1315,9 @@ async function handleBallResult(interaction, game, result) {
     return;
   }
 
-  // Reset timer and DM players for next ball
+  // Reset timer and send number buttons in channel for next ball
   game.resetTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
-  for (const pid of game.players) {
-    if (pid.startsWith('BOT_')) continue;
-    try {
-      const isBatsman = pid === game.battingNow;
-      const isBowler = pid === game.bowlingNow;
-      if (!isBatsman && !isBowler) continue;
-      const timeLeft = game.getSelectionTimeRemaining() || MATCH_TURN_TIMEOUT;
-      await client.users.cache.get(pid)?.send({
-        embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription(`You are **${isBatsman ? 'Batting 🏏' : 'Bowling 🎯'}**\n\nClick a number below!\n⏱️ **${timeLeft}s**!`).setTimestamp()],
-        components: getNumberButtons(game.channelId),
-      });
-    } catch (e) {}
-  }
+  await channel.send({ embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription('👇 Click a number button (1-6) below!').setTimestamp()], components: getNumberButtons(game.channelId) });
 }
 
 /* ── Helper: Send catch result after button click ── */
@@ -1402,20 +1398,9 @@ async function sendCatchResultToChannel(interaction, game, result) {
     return;
   }
 
-  // Reset timer and DM players for next ball
+  // Reset timer and send number buttons in channel for next ball
   game.resetTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
-  for (const pid of game.players) {
-    if (pid.startsWith('BOT_')) continue;
-    try {
-      const isBatsman = pid === game.battingNow;
-      const isBowler = pid === game.bowlingNow;
-      if (!isBatsman && !isBowler) continue;
-      await client.users.cache.get(pid)?.send({
-        embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription(`You are **${isBatsman ? 'Batting 🏏' : 'Bowling 🎯'}**\n\nClick a number below!`).setTimestamp()],
-        components: getNumberButtons(game.channelId),
-      });
-    } catch (e) {}
-  }
+  await channel.send({ embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription('👇 Click a number button (1-6) below!').setTimestamp()], components: getNumberButtons(game.channelId) });
 }
 
 /* ═══════════════════════════════════════════
@@ -1470,20 +1455,13 @@ client.on('messageCreate', async (message) => {
                 `━━━━━━━━━━━━━━━━━━━\n` +
                 `┣ 🤖 **${hcGame.botProfile.name}**: **${botChose === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**\n` +
                 `┣ 🏏 **You:** ${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}\n` +
-                `┗ 📨 Check DMs for number buttons!`
+                `┗ 👇 Click a number button below!`
               )
-              .setFooter({ text: '🏏 Match Started!' })
+              .setFooter({ text: '🏏 King Kohli Mode | No DM needed!' })
               .setTimestamp();
-            await channel.send({ embeds: [botChoiceEmbed] });
+            await channel.send({ embeds: [botChoiceEmbed], components: getNumberButtons(hcChannelId) });
 
             hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
-
-            try {
-              await message.author.send({
-                embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Match Started!').setDescription(`You are **${playerRole === 'bat' ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\nClick a number button below or type 1-6!`).setTimestamp()],
-                components: getNumberButtons(hcChannelId),
-              });
-            } catch (e) {}
           }
           return;
         }
@@ -1507,27 +1485,15 @@ client.on('messageCreate', async (message) => {
                 `┣ 🎯 **Bowling:** ${bowlName}\n` +
                 `┣ 📏 **${hcGame.maxOvers} over${hcGame.maxOvers > 1 ? 's' : ''}**, **${hcGame.maxWickets} wicket${hcGame.maxWickets > 1 ? 's' : ''}**\n` +
                 `┣ 🧤 **Catch System:** Active!\n` +
-                `┗ 📨 Check DMs for number buttons!`
+                `┗ 👇 Click a number button below!`
               )
-              .setFooter({ text: `🏏 ⏱️ ${MATCH_TURN_TIMEOUT}s per ball` })
+              .setFooter({ text: `🏏 Captain Cool Mode | ⏱️ ${MATCH_TURN_TIMEOUT}s per ball` })
               .setTimestamp();
-            await channel.send({ embeds: [startEmbed] });
+            await channel.send({ embeds: [startEmbed], components: getNumberButtons(hcChannelId) });
           }
 
           hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
-
-          // DM both players with number buttons
-          for (const pid of hcGame.players) {
-            if (pid.startsWith('BOT_')) continue;
-            try {
-              const isBatsman = pid === hcGame.battingNow;
-              await client.users.cache.get(pid)?.send({
-                embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Match Started!').setDescription(`You are **${isBatsman ? 'Batting 🏏' : 'Bowling 🎯'}**!\n\nClick a number button or type 1-6!`).setTimestamp()],
-                components: getNumberButtons(hcChannelId),
-              });
-            } catch (e) {}
-          }
-          return message.reply('🏏 Match started! Check the channel and your DMs!');
+          return message.reply('🏏 Match started! Click number buttons in the channel!');
         }
 
         // Toss number submission (1-6) — DM fallback
@@ -1560,11 +1526,7 @@ client.on('messageCreate', async (message) => {
               .setTimestamp();
             await channel.send({ embeds: [tossEmbed], components: [getBatBowlButtons(hcChannelId)] });
 
-            try {
-              await client.users.cache.get(result.winner)?.send({
-                embeds: [new EmbedBuilder().setColor(COLORS.GOLD).setTitle('🏆 You Won the Toss!').setDescription('Click **Bat** or **Bowl** in the channel, or DM me!').setTimestamp()]
-              });
-            } catch (e) {}
+            // Toss result already shown in channel with buttons — no DM needed
             return;
           }
         }
@@ -1577,18 +1539,8 @@ client.on('messageCreate', async (message) => {
           if (!result.success) return message.reply(result.message);
 
           if (result.message === 'waiting_for_opponent') {
-            const opponentId = isBatting ? hcGame.bowlingNow : hcGame.battingNow;
-            const timeLeft = hcGame.getSelectionTimeRemaining() || MATCH_TURN_TIMEOUT;
-            if (!opponentId?.startsWith('BOT_')) {
-              try {
-                const oppIsBatting = opponentId === hcGame.battingNow;
-                await client.users.cache.get(opponentId)?.send({
-                  embeds: [new EmbedBuilder().setColor(COLORS.WARNING).setTitle('🏏 Your Turn!').setDescription(`Opponent chose! You are **${oppIsBatting ? 'Batting 🏏' : 'Bowling 🎯'}**\nClick a number below!\n⏱️ **${timeLeft}s**!`).setTimestamp()],
-                  components: getNumberButtons(hcChannelId),
-                });
-              } catch (e) {}
-            }
-            return message.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**! (${roleLabel})\n⏱️ ${timeLeft}s left!`).setTimestamp()] });
+            const timeLeft = hcGame.getSelectionTimeRemaining?.() || MATCH_TURN_TIMEOUT;
+            return message.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Number Recorded!').setDescription(`You chose **${num}**! (${roleLabel})\n⏱️ ${timeLeft}s left!\n\nYour opponent can click buttons in the channel!`).setTimestamp()] });
           }
 
           // Ball resolved via DM — reuse the same logic
@@ -1655,18 +1607,8 @@ client.on('messageCreate', async (message) => {
             await handleHCInningsEnd(hcGame, result);
           } else {
             hcGame.resetTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
-            for (const pid of hcGame.players) {
-              if (pid.startsWith('BOT_')) continue;
-              try {
-                const isBatsman = pid === hcGame.battingNow;
-                const isBowler = pid === hcGame.bowlingNow;
-                if (!isBatsman && !isBowler) continue;
-                await client.users.cache.get(pid)?.send({
-                  embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription(`You are **${isBatsman ? 'Batting 🏏' : 'Bowling 🎯'}**\nClick a number below!`).setTimestamp()],
-                  components: getNumberButtons(hcChannelId),
-                });
-              } catch (e) {}
-            }
+            // Send next ball buttons in channel
+            await channel.send({ embeds: [new EmbedBuilder().setColor(COLORS.SUCCESS).setTitle('🏏 Next Ball!').setDescription('👇 Click a number button (1-6) below!').setTimestamp()], components: getNumberButtons(hcChannelId) });
           }
           return;
         }
@@ -1690,28 +1632,14 @@ client.on('messageCreate', async (message) => {
                 `┣ 🎯 **Bowling:** ${bowlName}\n` +
                 `┣ 📏 **Format:** ${hcGame.maxOvers} over${hcGame.maxOvers > 1 ? 's' : ''}, ${hcGame.maxWickets} wicket${hcGame.maxWickets > 1 ? 's' : ''}\n` +
                 `┣ ⏱️ **Timer:** ${MATCH_TURN_TIMEOUT}s per ball\n` +
-                `┗ 📨 Check your DMs — type a number (1-6)!`
+                `┗ 👇 Click a number button below!`
               )
-              .setFooter({ text: '🏏 Hand Cricket — 1st Innings!' })
+              .setFooter({ text: '🏏 Hitman Mode | No DM needed!' })
               .setTimestamp();
-            await channel.send({ embeds: [startEmbed] });
+            await channel.send({ embeds: [startEmbed], components: getNumberButtons(hcChannelId) });
 
             // Start match timer
             hcGame.startTurnTimer(handleHCTurnTimeout, handleHCInactivityTimeout);
-
-            // DM both players
-            for (const pid of hcGame.players) {
-              try {
-                if (pid.startsWith('BOT_')) continue;
-                await client.users.cache.get(pid)?.send({
-                  embeds: [new EmbedBuilder()
-                    .setColor(0x2ECC71)
-                    .setTitle('🏏 Match Started!')
-                    .setDescription(`Type a number **1-6** to play!\n\nYou are ${pid === result.battingFirst ? '**Batting** 🏏' : '**Bowling** 🎯'}\n\n⏱️ You have ${MATCH_TURN_TIMEOUT} seconds per ball!`)
-                    .setTimestamp()]
-                });
-              } catch (e) {}
-            }
           }
           return;
         }
@@ -2247,8 +2175,8 @@ client.on('messageCreate', async (message) => {
         .setDescription('Indian childhood classic — now with catch system, milestones & cinematic gameplay!')
         .addFields(
           { name: '🎮 Game Modes', value: '`hc.play [overs] [wickets]` — Play vs Bot\n`hc.challenge @user [overs] [wickets]` — Challenge a friend\n`hc.accept` — Accept challenge\n`hc.decline` — Decline challenge', inline: false },
-          { name: '🪙 Toss', value: '`hc.toss odd` or `hc.toss even` — Multiplayer toss\nDM `heads` or `tails` — Single player toss\nThen DM the bot a number (1-6)', inline: false },
-          { name: '🏏 Playing', value: 'DM the bot a number (1-6) each ball\n🏏 Batsman & Bowler both choose secretly within 30s\n💀 Same number = OUT!\n🧤 Catch combos can trigger catches!\n✅ Different = Batsman scores that many runs\n⏱️ ' + MATCH_TURN_TIMEOUT + 's per ball!', inline: false },
+          { name: '🪙 Toss', value: '`hc.toss odd` or `hc.toss even` — Multiplayer toss\nClick **Heads** or **Tails** button — Single player toss\nThen click a number (1-6) below!', inline: false },
+          { name: '🏏 Playing', value: 'Click number buttons (1-6) below each ball\n🏏 Batsman & Bowler both choose secretly within 30s\n💀 Same number = OUT!\n🧤 Catch combos can trigger catches!\n✅ Different = Batsman scores that many runs\n⏱️ ' + MATCH_TURN_TIMEOUT + 's per ball!', inline: false },
           { name: '📊 Stats & Fun', value: '`hc.profile` — Your stats (with rank!)\n`hc.profile @user` — Someone\'s stats\n`hc.score` — Current match score\n`hc.leaderboard [wins/runs/winrate/catches]` — Top players\n`hc.history [@user]` — Match history\n`hc.sledge @user` — Roast your friend 🔥', inline: false },
           { name: '🏟️ Tournaments', value: '`hc.tournament create <name>` — Create tournament\n`hc.tournament join <name>` — Join tournament\n`hc.tournament start <name>` — Start tournament\n`hc.tournament list` — List tournaments', inline: false },
           { name: '🔒 Lobbies', value: '`hc.lobby create [password]` — Create private lobby\n`hc.lobby join <code> [password]` — Join lobby\n`hc.lobby leave` — Leave lobby', inline: false },
@@ -2324,7 +2252,7 @@ client.on('messageCreate', async (message) => {
         .setColor(0x2ECC71)
         .setTitle('🏏 Challenge Accepted!')
         .setDescription(
-          `Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🪙 **Toss Time!**\n┣ Both players: type \`hc.toss odd\` or \`hc.toss even\`\n┣ Then DM me a number (1-6) for the toss\n┗ 🤫 Your number is secret!`
+          `Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n┣ 🪙 **Toss Time!**\n┣ Both players: type \`hc.toss odd\` or \`hc.toss even\`\n┣ Then click a number (1-6) below for the toss!\n┗ 🤫 Your number is secret!`
         )
         .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket' })
         .setTimestamp();
@@ -2378,13 +2306,17 @@ client.on('messageCreate', async (message) => {
             `━━━━━━━━━━━━━━━━━━━\n` +
             `┣ **${p1Name}**: ${result.p1Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
             `┣ **${p2Name}**: ${result.p2Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
-            `┗ 📨 **DM me a number (1-6) now!**`
+            `┗ 👇 **Click a number (1-6) below!**`
           )
-          .setFooter({ text: '🏏 Your number is secret — DM only!' })
+          .setFooter({ text: '🏏 No DM needed — click below!' })
           .setTimestamp();
         await message.reply({ embeds: [tossReadyEmbed] });
 
-        // DM both players
+        // No DM needed — number buttons are in channel
+        await message.reply({ embeds: [tossReadyEmbed], components: getNumberButtons(channelId) });
+        return;
+
+        // OLD DM code removed
         for (const pid of game.players) {
           try {
             await client.users.cache.get(pid)?.send({

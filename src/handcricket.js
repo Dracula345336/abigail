@@ -13,7 +13,7 @@
    Features:
      - Interactive BUTTONS for all gameplay
      - Coin Toss (Heads/Tails) + Odd-Even Toss
-     - Secret DM number selection via buttons
+     - Channel-based number selection via buttons (no DM needed)
      - Catch System with diving catches, dropped catches
      - Interactive catch action buttons
      - Milestone celebrations with GIFs
@@ -136,6 +136,9 @@ const CATCH_COMMENTARY_SUCCESS = [
   '🎪 CIRCUS CATCH! The acrobatics were unbelievable!',
   '⚡ Absolute blinder! The crowd can\'t believe what they just saw!',
   '🔥 That was Kohli-level fielding! Incredible stuff!',
+  '🔥 Kohli at covers! What a catch! King of fielding!',
+  '💪 Jadeja-style catch! Sir RJ does it again!',
+  '⚡ Suresh Raina at slip! Caught! Gone!',
 ];
 
 const CATCH_COMMENTARY_DROPPED = [
@@ -212,6 +215,10 @@ const CELEBRATION_GIFS = {
     'https://media.tenor.com/rohit-sharma-century.gif',
     'https://media.tenor.com/rohit-sharma-six.gif',
   ],
+  kohli: [
+    'https://media.tenor.com/vJx5Ml6O7XEAAAAC/virat-kohli-celebration.gif',
+    'https://media.tenor.com/N3qI-7Xv7qoAAAAC/kohli-celebration.gif',
+  ],
 };
 
 const MILESTONE_MESSAGES = {
@@ -221,6 +228,9 @@ const MILESTONE_MESSAGES = {
     '⭐ **50 RUNS!** Halfway to glory! What a player!',
     '🏏 **FIFTY UP!** Class act! The bowlers have no answer!',
     '💪 **50!** Kohli would be proud of that innings!',
+    '👑 **FIFTY!** King Kohli nods in approval! Royal innings!',
+    '🎯 **50!** Dhoni-calculated chase! Captain Cool style!',
+    '🚀 **HALF CENTURY!** Rohit Sharma level elegance!',
   ],
   century: [
     '👑 **CENTURY!** 100 RUNS! The stadium erupts! Absolute legend!',
@@ -228,6 +238,9 @@ const MILESTONE_MESSAGES = {
     '💎 **100 RUNS!** The batter has reached three figures! Incredible!',
     '🎯 **CENTURY!** History in the making! Unbelievable batting!',
     '🌟 **100!** That\'s Kohli-level batting! Sensational!',
+    '👑 **CENTURY!** VIRAT KOHLI MODE ACTIVATED! The King reigns!',
+    '🎯 **100!** Dhoni would have finished it in style! Incredible!',
+    '🚀 **HUNDRED!** Hitman Rohit would be jealous! Outstanding!',
   ],
   doubleCentury: [
     '🌟 **DOUBLE CENTURY!** 200 RUNS! This is legendary stuff!',
@@ -281,6 +294,9 @@ const COMMENTARY_RUNS = {
     '🌟 SIX! The bowler just fell to their knees! Absolute carnage!',
     '🚀 SIXER! NASA called — they want their ball back!',
     '🏏 Dhoni-style finish! SIX! Into the stands!',
+    '🏏 Virat Kohli would be proud! SIX! The King approves!',
+    '🎯 MS Dhoni helicopter shot! SIX! Finisher mode activated!',
+    '💥 Rohit Sharma pull shot! SIX! Hitman sends it into orbit!',
   ],
 };
 
@@ -299,6 +315,9 @@ const COMMENTARY_OUT = [
   '🔥 SEND HIM BACK! Same number — easy wicket!',
   '🏏 YOU ARE OUT! The number matched — walk back!',
   '💀 Clutch wicket! The pressure was too much!',
+  '💀 OUT! Even Kohli gets out sometimes! Walk back, champ!',
+  '🔥 Bumrah-esque yorker! Unplayable! OUT!',
+  '🎯 Dhoni stamp the stumps! RUN OUT! Same number!',
 ];
 
 const COMMENTARY_WIDE = [
@@ -378,16 +397,30 @@ const SLEDGE_MESSAGES = [
   '{target}, {user}: "Your cricket skills are like a participation trophy — just for showing up!" 🏅',
 ];
 
-/* ── Bot AI Names & Personalities ── */
+/* ── Cricket Legend Bot Profiles ── */
 const BOT_PROFILES = [
-  { name: '🤖 AbiBot', style: 'aggressive' },
-  { name: '🤖 SpinMaster', style: 'defensive' },
-  { name: '🤖 YorkerKing', style: 'balanced' },
-  { name: '🤖 BatSmasher', style: 'aggressive' },
-  { name: '🤖 WallBuilder', style: 'defensive' },
-  { name: '🤖 PaceDemon', style: 'aggressive' },
-  { name: '🤖 CoolRunner', style: 'balanced' },
-  { name: '🤖 SixMachine', style: 'aggressive' },
+  { name: '🏏 Virat Kohli', style: 'aggressive', emoji: '👑', title: 'King Kohli' },
+  { name: '🧤 MS Dhoni', style: 'balanced', emoji: '🎯', title: 'Captain Cool' },
+  { name: '💥 Rohit Sharma', style: 'aggressive', emoji: '🚀', title: 'Hitman' },
+  { name: '🎯 Jasprit Bumrah', style: 'defensive', emoji: '🔥', title: 'Yorker King' },
+  { name: '⚡ Shubman Gill', style: 'aggressive', emoji: '🌟', title: 'Prince' },
+  { name: '🛡️ Ravindra Jadeja', style: 'balanced', emoji: '⚔️', title: 'Sir Jadeja' },
+  { name: '🔥 Suryakumar Yadav', style: 'aggressive', emoji: '💫', title: 'SKY 360' },
+  { name: '🎯 KL Rahul', style: 'balanced', emoji: '🏏', title: 'The Wall Jr' },
+];
+
+/* ── Cricket Legends for Random Commentary References ── */
+const CRICKET_LEGENDS = [
+  { name: 'Virat Kohli', emoji: '👑', style: 'aggressive batting' },
+  { name: 'MS Dhoni', emoji: '🎯', style: 'finisher' },
+  { name: 'Rohit Sharma', emoji: '🚀', style: 'power hitting' },
+  { name: 'Sachin Tendulkar', emoji: '🏏', style: 'master class' },
+  { name: 'Jasprit Bumrah', emoji: '🔥', style: 'death bowling' },
+  { name: 'Ravindra Jadeja', emoji: '⚔️', style: 'all-round' },
+  { name: 'Shubman Gill', emoji: '🌟', style: 'elegant batting' },
+  { name: 'Suryakumar Yadav', emoji: '💫', style: '360 batting' },
+  { name: 'KL Rahul', emoji: '🏏', style: 'classical batting' },
+  { name: 'Hardik Pandya', emoji: '💪', style: 'explosive finishing' },
 ];
 
 /* ── Bot AI ── */
@@ -2217,6 +2250,7 @@ module.exports = {
   EMOJI_NUMBERS,
   SLEDGE_MESSAGES,
   BOT_PROFILES,
+  CRICKET_LEGENDS,
   COMMENTARY_RUNS,
   COMMENTARY_OUT,
   COMMENTARY_TOSS,

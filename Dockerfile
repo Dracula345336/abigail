@@ -1,6 +1,9 @@
 # Use Node.js 20 image
 FROM node:20-alpine
 
+# Install ffmpeg (required for music playback via DisTube)
+RUN apk add --no-cache ffmpeg python3 make g++
+
 # Create app directory
 WORKDIR /app
 

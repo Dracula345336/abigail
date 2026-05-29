@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, MessageFlags, EmbedBuilder, userMention, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { HandCricketGame, GAME_PHASE: HC_PHASE, EMOJI_NUMBERS, SLEDGE_MESSAGES, BOT_PROFILES, ECONOMY, MATCH_TURN_TIMEOUT, CELEBRATION_GIFS, MMR, COLORS, grantEconomyRewards } = require('../handcricket');
+const { HandCricketGame, GAME_PHASE: HC_PHASE, EMOJI_NUMBERS, SLEDGE_MESSAGES, BOT_PROFILES, ECONOMY, MATCH_TURN_TIMEOUT, CELEBRATION_GIFS, MMR, COLORS, CRICKET_LEGENDS, grantEconomyRewards } = require('../handcricket');
 
 let activeHCGames = null;
 let hcPlayerMap = null;
@@ -258,14 +258,14 @@ module.exports = {
         .setDescription('Indian childhood classic — now with **interactive buttons**! Fast, fun, and cinematic!')
         .addFields(
           { name: '🎮 Game Modes', value: '`/handcricket play` — Play vs Bot\n`/handcricket challenge @user` — Challenge a friend\nButtons: Accept/Decline, Toss, Bat/Bowl', inline: false },
-          { name: '🏏 Playing', value: 'Click number buttons (1-6) in your **DM**!\n🏏 Batsman & Bowler both choose secretly\n💀 Same number = OUT!\n🧤 Catch combos trigger interactive catch buttons!\n✅ Different = Batsman scores that many runs', inline: false },
+          { name: '🏏 Playing', value: 'Click number buttons (1-6) **below**!\n🏏 Batsman & Bowler both choose secretly\n💀 Same number = OUT!\n🧤 Catch combos trigger interactive catch buttons!\n✅ Different = Batsman scores that many runs', inline: false },
           { name: '⚡ Special Modes', value: '**Powerplay** — Bonus runs first over!\n**Ranked** — MMR-based rating!\n**Super Over** — Tiebreaker!', inline: false },
           { name: '📊 Stats & Fun', value: '`/handcricket profile [user]` — Your stats\n`/handcricket score` — Current match score\n`/handcricket leaderboard [sort]` — Top players\n`/handcricket history [user]` — Match history\n`/handcricket sledge @user` — Roast your friend 🔥', inline: false },
           { name: '🏟️ Tournaments', value: '`/handcricket tournament create` — Create tournament\n`/handcricket tournament join` — Join tournament\n`/handcricket tournament start` — Start tournament', inline: false },
           { name: '🔒 Lobbies', value: '`/handcricket lobby create [password]` — Create private lobby\n`/handcricket lobby join <code> [password]` — Join lobby', inline: false },
           { name: '💰 Economy', value: `Play: +₹${ECONOMY.PLAY_REWARD} | Win: +₹${ECONOMY.WIN_BONUS}\nFOUR: +₹${ECONOMY.FOUR_BONUS} | SIX: +₹${ECONOMY.SIX_BONUS}\nCatch: +₹${ECONOMY.CATCH_BONUS} | 50 runs: +₹${ECONOMY.MILESTONE_50_BONUS}\nCentury: +₹${ECONOMY.MILESTONE_100_BONUS}`, inline: false },
         )
-        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket | Interactive Buttons!' })
+        .setFooter({ text: '🏏 King Kohli Mode | Interactive Hand Cricket' })
         .setTimestamp();
       return interaction.reply({ embeds: [helpEmbed] });
     }
@@ -278,15 +278,15 @@ module.exports = {
         .setDescription('The Indian childhood classic you love — now with **interactive buttons**, catch system, milestones, and cinematic gameplay!')
         .addFields(
           { name: '🎮 Starting', value: '`/handcricket play [overs] [wickets]` — Play vs Bot\n`/handcricket challenge @user` — Challenge a friend\nUse buttons to Accept/Decline!', inline: false },
-          { name: '🪙 Toss', value: 'Bot game: Click **Heads** or **Tails** button\nMultiplayer: Click **Odd** or **Even** button, then choose 1-6 in DM\nWinner clicks **Bat** or **Bowl** button', inline: false },
-          { name: '🏏 Playing', value: 'Click number buttons (1-6) sent to your **DM**!\n🏏 Both players choose secretly within 30s\n💀 Same number = OUT!\n✅ Different = Batsman scores that many runs\n\n⏱️ You have 30 seconds per ball!', inline: false },
+          { name: '🪙 Toss', value: 'Bot game: Click **Heads** or **Tails** button\nMultiplayer: Click **Odd** or **Even** button, then choose 1-6 below!\nWinner clicks **Bat** or **Bowl** button', inline: false },
+          { name: '🏏 Playing', value: 'Click number buttons (1-6) right here in the channel!\n🏏 Both players choose secretly within 30s\n💀 Same number = OUT!\n✅ Different = Batsman scores that many runs\n\n⏱️ You have 30 seconds per ball!', inline: false },
           { name: '🧤 Catch System', value: 'Certain combos trigger **Catch Chance**!\nBowler gets buttons: **Dive** (50% success) or **Safe** (70% success)\nSuccessful catch = Batter OUT!\nDropped catch = Batter survives + scores runs!', inline: false },
           { name: '🏆 Milestones & GIFs', value: '50 runs = **HALF CENTURY!** Kohli GIF!\n100 runs = **CENTURY!** Special GIF!\nFours, Sixes, Wickets, Catches — all have GIFs!\nMatch-winning moments = Cinematic celebrations!', inline: false },
           { name: '⚡ Special Modes', value: '**Powerplay** — +2 bonus runs on every scoring ball in first over!\n**Ranked** — MMR rating (start: 1000, win: +25, lose: -20)\n**Super Over** — 1 over, 2 wickets tiebreaker!', inline: false },
           { name: '🏆 Winning', value: '2 innings each — highest score wins!\nIn 2nd innings, chaser passes target = instant win!\nTie = Super Over option!\nEqual in Super Over = Coin flip!', inline: false },
           { name: '📊 Other Commands', value: '`/handcricket profile` — Stats & MMR rank\n`/handcricket leaderboard` — Global rankings\n`/handcricket history` — Match history\n`/handcricket sledge @user` — Roast! 🔥\n`/handcricket quit` — Quit game', inline: false },
         )
-        .setFooter({ text: '💕 Sweetheart Bot — Hand Cricket | Interactive Buttons!' })
+        .setFooter({ text: '🏏 Hitman Mode | Interactive Hand Cricket' })
         .setTimestamp();
       return interaction.reply({ embeds: [guideEmbed] });
     }
@@ -326,7 +326,7 @@ module.exports = {
           `┣ 🪙 **Toss Time!**\n` +
           `┗ 👇 Click **Heads** or **Tails**!`
         )
-        .setFooter({ text: '🏏 Interactive Hand Cricket | ⏱️ 30s per ball' })
+        .setFooter({ text: '🏏 King Kohli Mode | Interactive Hand Cricket | ⏱️ 30s per ball' })
         .setTimestamp();
       return interaction.reply({ embeds: [playEmbed], components: [getTossButtons(channelId, true)] });
     }
@@ -376,7 +376,7 @@ module.exports = {
           `┣ 👇 **${target.username}**: Accept or Decline!\n` +
           `┗ ⏰ Waiting for response...`
         )
-        .setFooter({ text: '🏏 Interactive Hand Cricket' })
+        .setFooter({ text: '🏏 Hitman Mode | Interactive Hand Cricket' })
         .setTimestamp();
       return interaction.reply({ embeds: [challengeEmbed], components: [getAcceptDeclineButtons(channelId)] });
     }
@@ -400,9 +400,9 @@ module.exports = {
           `Game ON! 🎉\n\n━━━━━━━━━━━━━━━━━━━\n` +
           `┣ 🪙 **Toss Time!**\n` +
           `┣ 👇 Both players: Click **Odd** or **Even**!\n` +
-          `┗ Then choose a number (1-6) in DM!`
+          `┗ Then choose your number (1-6) below!`
         )
-        .setFooter({ text: '🏏 Interactive Hand Cricket' })
+        .setFooter({ text: '🏏 Captain Cool Mode | Interactive Hand Cricket' })
         .setTimestamp();
       return interaction.reply({ embeds: [acceptEmbed], components: [getTossButtons(channelId, false)] });
     }
@@ -450,27 +450,11 @@ module.exports = {
             `━━━━━━━━━━━━━━━━━━━\n` +
             `┣ **${p1Name}**: ${result.p1Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
             `┣ **${p2Name}**: ${result.p2Choice === 'odd' ? '🔴 Odd' : '🔵 Even'}\n` +
-            `┗ 📨 **Check your DMs — choose a number (1-6)!**`
+            `┗ 👇 **Click a number (1-6) below!**`
           )
-          .setFooter({ text: '🏏 Your number is secret — DM only!' })
+          .setFooter({ text: '🏏 Captain Cool Mode | Interactive Hand Cricket' })
           .setTimestamp();
-        await interaction.reply({ embeds: [tossReadyEmbed] });
-
-        // DM both players with number buttons
-        for (const pid of game.players) {
-          try {
-            await interaction.client.users.cache.get(pid)?.send({
-              embeds: [new EmbedBuilder()
-                .setColor(COLORS.GOLD)
-                .setTitle('🪙 Toss — Choose Your Number!')
-                .setDescription('Click a number **1-6** for the toss!\n\nYour choice is secret — choose wisely!')
-                .setTimestamp()],
-              components: getNumberButtons(channelId),
-            });
-          } catch (e) {
-            await interaction.channel.send(`⚠️ Could not DM <@${pid}> — tell them to enable DMs!`);
-          }
-        }
+        await interaction.reply({ embeds: [tossReadyEmbed], components: getNumberButtons(channelId) });
         return;
       }
 
@@ -517,7 +501,7 @@ module.exports = {
       const phaseNames = { waiting: 'Waiting', toss: 'Toss', toss_choice: 'Toss Choice', playing: 'Playing', innings_break: 'Innings Break', ended: 'Ended', catch_action: 'Catch Action', super_over_toss: 'Super Over Toss' };
       desc += `┗ 📋 **Phase:** ${phaseNames[game.phase] || game.phase}`;
 
-      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Scoreboard').setDescription(desc).setFooter({ text: '🏏 Interactive Hand Cricket' }).setTimestamp()] });
+      return interaction.reply({ embeds: [new EmbedBuilder().setColor(COLORS.ACCENT).setTitle('🏏 Scoreboard').setDescription(desc).setFooter({ text: '🏏 King Kohli Mode | Interactive Hand Cricket' }).setTimestamp()] });
     }
 
     /* ── /handcricket quit ── */
@@ -562,6 +546,9 @@ module.exports = {
       else if (profile.games_played >= 3) { rank = 'Rookie'; rankEmoji = '🌟'; }
       else { rank = 'Beginner'; rankEmoji = '🎯'; }
 
+      // Pick a random cricket legend for the profile comparison
+      const legend = CRICKET_LEGENDS[Math.floor(Math.random() * CRICKET_LEGENDS.length)];
+
       const profileEmbed = new EmbedBuilder()
         .setColor(COLORS.PRIMARY)
         .setAuthor({ name: `${targetUser.username}'s Profile`, iconURL: targetUser.displayAvatarURL({ dynamic: true }) })
@@ -581,10 +568,11 @@ module.exports = {
           `┣ 4️⃣ **Fours:** ${profile.total_fours}\n` +
           `┣ 6️⃣ **Sixes:** ${profile.total_sixes}\n` +
           `┣ 📈 **MMR:** ${profile.mmr || 1000}\n` +
-          `┗ 🏅 **MMR Tier:** ${mmrTier}`
+          `┣ 🏅 **MMR Tier:** ${mmrTier}\n` +
+          `┗ ${legend.emoji} **Legend Style:** ${legend.name} — ${legend.style}`
         )
         .setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }))
-        .setFooter({ text: '🏏 Interactive Hand Cricket' })
+        .setFooter({ text: `🏏 ${legend.name} Mode | Interactive Hand Cricket` })
         .setTimestamp();
       return interaction.reply({ embeds: [profileEmbed] });
     }
@@ -650,7 +638,7 @@ module.exports = {
         .setColor(COLORS.GOLD)
         .setTitle(`🏏 Leaderboard — ${sortLabel}`)
         .setDescription(desc)
-        .setFooter({ text: '🏏 Interactive Hand Cricket | Min 3 games for WR' })
+        .setFooter({ text: '🏏 Hitman Mode | Interactive Hand Cricket | Min 3 games for WR' })
         .setTimestamp();
       return interaction.reply({ embeds: [lbEmbed] });
     }
