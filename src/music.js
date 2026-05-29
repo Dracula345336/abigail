@@ -1,9 +1,10 @@
 /* ═══════════════════════════════════════════
-   🎵 Abigail Music Engine v2 — play-dl + @discordjs/voice
+   🎵 Abigail Music Engine v3 — play-dl + @discordjs/voice
    ═══════════════════════════════════════════
    No DisTube! Uses play-dl for search/stream
    @discordjs/voice for VC connection
    Interactive button controls • Dark-themed cinematic embeds
+   ✅ Name search + URL playback both supported
    ═══════════════════════════════════════════ */
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
@@ -15,6 +16,7 @@ const {
   VoiceConnectionStatus,
   getVoiceConnection,
   entersState,
+  StreamType,
 } = require('@discordjs/voice');
 
 /* ═══════════════════════════════════════════
@@ -102,23 +104,42 @@ function ensureQueue(guildId) {
    ═══════════════════════════════════════════ */
 
 let playdl = null;
+let musicReady = false;
 
 async function initMusic(client) {
   try {
     playdl = require('play-dl');
-    await playdl.setToken({
-      spotify: {
-        client_id: process.env.SPOTIFY_CLIENT_ID || undefined,
-        client_secret: process.env.SPOTIFY_CLIENT_SECRET || undefined,
-        refresh_token: process.env.SPOTIFY_REFRESH_TOKEN || undefined,
-        market: 'IN',
-      },
-    });
+
+    // Attempt Spotify token setup (optional — won't fail without creds)
+    try {
+      await playdl.setToken({
+        spotify: {
+          client_id: process.env.SPOTIFY_CLIENT_ID || undefined,
+          client_secret: process.env.SPOTIFY_CLIENT_SECRET || undefined,
+          refresh_token: process.env.SPOTIFY_REFRESH_TOKEN || undefined,
+          market: 'IN',
+        },
+      });
+    } catch (tokenErr) {
+      console.warn('⚠️  Spotify token setup skipped:', tokenErr.message);
+    }
+
+    // Pre-authorize play-dl for YouTube (prevents 429/bot detection)
+    try {
+      await playdl.authorization();
+      console.log('✅ play-dl YouTube authorization done!');
+    } catch (authErr) {
+      console.warn('⚠️  play-dl auth skipped:', authErr.message);
+    }
+
+    musicReady = true;
     console.log('✅ play-dl Music Engine initialized!');
+    console.log('   🎵 Name search: /music play <song name>');
+    console.log('   🔗 URL playback: /music play <youtube/spotify url>');
     return true;
   } catch (err) {
     console.error('❌ Failed to initialize play-dl:', err.message);
-    console.error('   Run: npm install play-dl @discordjs/voice');
+    console.error('   Run: npm install play-dl @discordjs/voice @discordjs/opus');
     return null;
   }
 }
@@ -128,21 +149,38 @@ async function initMusic(client) {
    ═══════════════════════════════════════════ */
 
 async function connectToVC(voiceChannel) {
+  // Reuse existing connection if available and healthy
   const existing = getVoiceConnection(voiceChannel.guild.id);
-  if (existing) return existing;
+  if (existing && existing.state.status !== VoiceConnectionStatus.Destroyed) {
+    // If already ready, return immediately
+    if (existing.state.status === VoiceConnectionStatus.Ready || existing.state.status === VoiceConnectionStatus.Signalling) {
+      return existing;
+    }
+  }
+
+  // Destroy any stale connection first
+  if (existing) {
+    try { existing.destroy(); } catch (e) {}
+  }
 
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
     guildId: voiceChannel.guild.id,
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+    group: 'default',
   });
 
+  // Handle connection state transitions with retries
   try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+    // Wait for signalling first, then ready
+    await entersState(connection, VoiceConnectionStatus.Signalling, 10_000);
+    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    console.log(`✅ Voice connected to ${voiceChannel.name} (${voiceChannel.guild.name})`);
     return connection;
   } catch (err) {
-    connection.destroy();
-    throw new Error('Could not connect to voice channel within 15 seconds. Check bot permissions!');
+    console.error('❌ Voice connection failed:', err.message);
+    try { connection.destroy(); } catch (e) {}
+    throw new Error('Could not connect to voice channel. Make sure I have **Connect** and **Speak** permissions, and the VC is not full!');
   }
 }
 
@@ -207,18 +245,35 @@ async function playSong(queue) {
   try {
     // Get stream from play-dl
     let stream;
+    const maxRetries = 2;
+    let lastError = null;
 
-    if (song.type === 'spotify') {
-      // For Spotify, search YouTube with the same song info
-      const ytSearch = `${song.artist} ${song.name} official`;
-      const ytResults = await playdl.search(ytSearch, { limit: 1 });
-      if (!ytResults || ytResults.length === 0) {
-        throw new Error('Could not find YouTube equivalent for Spotify track');
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (song.type === 'spotify') {
+          // For Spotify, search YouTube with the same song info
+          const ytSearch = `${song.artist} ${song.name} official`;
+          const ytResults = await playdl.search(ytSearch, { limit: 1 });
+          if (!ytResults || ytResults.length === 0) {
+            throw new Error('Could not find YouTube equivalent for Spotify track');
+          }
+          stream = await playdl.stream(ytResults[0].url);
+        } else {
+          stream = await playdl.stream(song.url);
+        }
+        lastError = null;
+        break; // Success!
+      } catch (streamErr) {
+        lastError = streamErr;
+        console.error(`playSong stream attempt ${attempt + 1} failed:`, streamErr.message);
+        if (attempt < maxRetries) {
+          // Wait a bit before retrying
+          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+        }
       }
-      stream = await playdl.stream(ytResults[0].url);
-    } else {
-      stream = await playdl.stream(song.url);
     }
+
+    if (lastError) throw lastError;
 
     const resource = createAudioResource(stream.stream, {
       inputType: stream.type,
@@ -1135,6 +1190,7 @@ function formatDuration(seconds) {
 module.exports = {
   initMusic,
   handleMusicButton,
+  musicState: searchState,  // Aliased for index.js compatibility
   MUSIC_COLORS,
   MUSIC_EMOJIS,
   handlePlay, handleSearch, handleSkip, handleStop, handlePause,

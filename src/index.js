@@ -591,13 +591,13 @@ client.once(Events.ClientReady, async () => {
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
   client.user.setActivity('💕 Watching over you | 🎵 /music');
 
-  /* ── 🎵 Initialize Music Engine (DisTube) ── */
+  /* ── 🎵 Initialize Music Engine (play-dl) ── */
   try {
     const dt = initMusic(client);
     if (dt) {
       console.log('🎵 Music system ready — /music commands available!');
     } else {
-      console.warn('⚠️  Music system failed to initialize. Check distube dependencies.');
+      console.warn('⚠️  Music system failed to initialize. Check play-dl dependencies.');
     }
   } catch (musicErr) {
     console.warn('⚠️  Music system error:', musicErr.message);
