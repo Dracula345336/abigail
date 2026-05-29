@@ -32,7 +32,8 @@ const path = require('path');
 /* ═══════════════════════════════════════════
    🎵 Music Engine Import
    ═══════════════════════════════════════════ */
-// v2.0.0: libsodium-wrappers + @discordjs/opus properly installed
+// v2.1.0: Pre-initialized encryption (libsodium-wrappers/tweetnacl)
+// @discordjs/opus is optional — opusscript is the reliable fallback
 // No module hacks — @discordjs/voice finds encryption/opus natively
 const { initMusic, handleMusicButton, musicState, MUSIC_COLORS, MUSIC_EMOJIS } = require('./music');
 

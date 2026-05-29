@@ -1,8 +1,8 @@
 /* ═══════════════════════════════════════════
-   🎵 Abigail Music Engine v4 — play-dl + @discordjs/voice
+   🎵 Abigail Music Engine v5 — play-dl + @discordjs/voice
    ═══════════════════════════════════════════
-   v4: Proper libsodium-wrappers + @discordjs/opus
-   Auto-reconnect on disconnect, robust state handling
+   v5: Pre-initialized encryption, connection retry,
+   robust state handling, better diagnostics
    ═══════════════════════════════════════════ */
 
 const { checkEncryption, testUDP } = require('./sodium-shim');
@@ -104,13 +104,85 @@ function ensureQueue(guildId) {
 
 let playdl = null;
 let musicReady = false;
+let encryptionReady = false;  // True if encryption is confirmed working
+let encryptionLib = 'none';   // Which lib is being used
 
 async function initMusic(client) {
   try {
-    // ═══ Verify critical voice dependencies ═══
-    console.log('🔧 Checking voice dependencies...');
+    // ═══════════════════════════════════════════════════════
+    // STEP 1: Pre-initialize encryption BEFORE anything else
+    // ═══════════════════════════════════════════════════════
+    console.log('🔧 [Music] Pre-initializing encryption libraries...');
 
-    // Opus encoder check — prefer native @discordjs/opus over opusscript
+    // Try libsodium-wrappers (WASM — best performance)
+    try {
+      const sodium = require('libsodium-wrappers');
+      await sodium.ready;  // MUST await — WASM needs to initialize
+      // Verify it actually works with a roundtrip test
+      const key = sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES);
+      const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+      const msg = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+      const enc = sodium.crypto_secretbox_easy(msg, nonce, key);
+      const dec = sodium.crypto_secretbox_open_easy(enc, nonce, key);
+      if (dec) {
+        encryptionReady = true;
+        encryptionLib = 'libsodium-wrappers';
+        console.log('  ✅ libsodium-wrappers: WASM encryption READY (roundtrip verified)');
+      } else {
+        console.error('  ❌ libsodium-wrappers: roundtrip FAILED — decryption returned null');
+      }
+    } catch (e) {
+      console.log('  ⚠️ libsodium-wrappers not available:', e.message);
+    }
+
+    // Try libsodium-wrappers-sumo as alternative
+    if (!encryptionReady) {
+      try {
+        const sodium = require('libsodium-wrappers-sumo');
+        await sodium.ready;
+        const key = sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES);
+        const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+        const msg = new Uint8Array([72, 101, 108, 108, 111]);
+        const enc = sodium.crypto_secretbox_easy(msg, nonce, key);
+        const dec = sodium.crypto_secretbox_open_easy(enc, nonce, key);
+        if (dec) {
+          encryptionReady = true;
+          encryptionLib = 'libsodium-wrappers-sumo';
+          console.log('  ✅ libsodium-wrappers-sumo: WASM encryption READY (roundtrip verified)');
+        }
+      } catch (e) {
+        console.log('  ⚠️ libsodium-wrappers-sumo not available:', e.message);
+      }
+    }
+
+    // Fallback: tweetnacl (pure JS — always works, slower)
+    if (!encryptionReady) {
+      try {
+        const nacl = require('tweetnacl');
+        const k = nacl.randomBytes(32);
+        const n = nacl.randomBytes(24);
+        const enc = nacl.secretbox(new Uint8Array([1, 2, 3]), n, k);
+        const dec = nacl.secretbox.open(enc, n, k);
+        if (dec) {
+          encryptionReady = true;
+          encryptionLib = 'tweetnacl';
+          console.log('  ✅ tweetnacl: JS encryption READY (roundtrip verified)');
+        } else {
+          console.error('  ❌ tweetnacl: roundtrip FAILED');
+        }
+      } catch (e) {
+        console.error('  ❌ tweetnacl not available:', e.message);
+      }
+    }
+
+    if (!encryptionReady) {
+      console.error('  ❌ NO encryption library available! Voice will NOT work!');
+      console.error('     Make sure libsodium-wrappers or tweetnacl is installed.');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // STEP 2: Check Opus encoder
+    // ═══════════════════════════════════════════════════════
     let hasOpus = false;
     let opusType = 'none';
     try { require('@discordjs/opus'); hasOpus = true; opusType = 'native'; console.log('  ✅ @discordjs/opus — native Opus encoder'); } catch (e) {
@@ -121,48 +193,15 @@ async function initMusic(client) {
     }
     if (!hasOpus) console.error('  ❌ NO Opus encoder! Audio will not play.');
 
-    // Encryption check — prefer libsodium-wrappers over tweetnacl
-    let hasEncryption = false;
-    let encryptionType = 'none';
-    try {
-      const sodium = require('libsodium-wrappers');
-      await sodium.ready; // Wait for WASM initialization
-      hasEncryption = true;
-      encryptionType = 'libsodium-wrappers';
-      console.log('  ✅ libsodium-wrappers — NaCl encryption (WASM)');
-    } catch (e) {
-      console.log('  ⚠️ libsodium-wrappers not available:', e.message);
-    }
-    if (!hasEncryption) {
-      try {
-        const nacl = require('tweetnacl');
-        // Quick test
-        const k = nacl.randomBytes(32);
-        const n = nacl.randomBytes(24);
-        const enc = nacl.secretbox(new Uint8Array([1, 2, 3]), n, k);
-        const dec = nacl.secretbox.open(enc, n, k);
-        if (dec) {
-          hasEncryption = true;
-          encryptionType = 'tweetnacl';
-          console.log('  ✅ tweetnacl — NaCl encryption (JS fallback)');
-        } else {
-          console.error('  ❌ tweetnacl encryption roundtrip FAILED');
-        }
-      } catch (e) {
-        console.error('  ❌ tweetnacl not available:', e.message);
-      }
-    }
-    if (!hasEncryption) {
-      console.error('  ❌ NO encryption library! Voice connection will FAIL.');
-      console.error('     Install libsodium-wrappers or tweetnacl!');
-    }
-
-    // Check using @discordjs/voice's own dependency reporter
+    // ═══════════════════════════════════════════════════════
+    // STEP 3: Log @discordjs/voice dependency report
+    // ═══════════════════════════════════════════════════════
     checkEncryption();
+    console.log(`  📊 Summary: Opus=${opusType}, Encryption=${encryptionLib}`);
 
-    console.log(`  📊 Summary: Opus=${opusType}, Encryption=${encryptionType}`);
-
-    // ═══ Test UDP connectivity (Discord voice REQUIRES UDP) ═══
+    // ═══════════════════════════════════════════════════════
+    // STEP 4: Test UDP connectivity
+    // ═══════════════════════════════════════════════════════
     const udpWorks = await testUDP();
     if (!udpWorks) {
       console.error('⚠️  WARNING: UDP outbound test FAILED!');
@@ -171,7 +210,9 @@ async function initMusic(client) {
       console.error('   Consider: Fly.io, a VPS, or any host with UDP support.');
     }
 
-    // ═══ Initialize play-dl ═══
+    // ═══════════════════════════════════════════════════════
+    // STEP 5: Initialize play-dl
+    // ═══════════════════════════════════════════════════════
     playdl = require('play-dl');
 
     // Spotify token setup (optional)
@@ -197,7 +238,8 @@ async function initMusic(client) {
     }
 
     musicReady = true;
-    console.log('✅ Music Engine ready!');
+    console.log('✅ Music Engine v5 ready!');
+    console.log(`   🔐 Encryption: ${encryptionLib} | 🎵 Opus: ${opusType} | 📡 UDP: ${udpWorks ? 'OK' : 'BLOCKED'}`);
     console.log('   🎵 /music play <song name>  →  Search & play');
     console.log('   🔗 /music play <youtube url>  →  Direct play');
     return true;
@@ -211,7 +253,25 @@ async function initMusic(client) {
    🔊 Audio Playback Engine
    ═══════════════════════════════════════════ */
 
-async function connectToVC(voiceChannel) {
+async function connectToVC(voiceChannel, attempt = 1) {
+  // ═══ Pre-flight checks ═══
+  if (!encryptionReady) {
+    console.error('❌ Cannot connect — no encryption library available!');
+    throw new Error('Voice encryption is not available. Bot owner needs to install libsodium-wrappers or tweetnacl.');
+  }
+
+  // Check permissions BEFORE attempting connection
+  const perms = voiceChannel.permissionsFor(voiceChannel.guild.members.me);
+  const missing = [];
+  if (perms && !perms.has('Connect')) missing.push('Connect');
+  if (perms && !perms.has('Speak')) missing.push('Speak');
+  if (missing.length > 0) {
+    throw new Error(`Missing **${missing.join('** & **')}** permission in ${voiceChannel.name}!`);
+  }
+  if (voiceChannel.full && !perms?.has('Administrate')) {
+    throw new Error(`${voiceChannel.name} is **full**! Make room or give me Admin.`);
+  }
+
   // Reuse existing healthy connection
   const existing = getVoiceConnection(voiceChannel.guild.id);
   if (existing && existing.state.status === VoiceConnectionStatus.Ready) {
@@ -223,9 +283,12 @@ async function connectToVC(voiceChannel) {
   if (existing) {
     console.log(`🗑️ Destroying stale voice connection (state: ${existing.state.status})`);
     try { existing.destroy(); } catch (e) {}
+    // Small delay to let Discord process the leave
+    await new Promise(r => setTimeout(r, 1000));
   }
 
-  console.log(`🔌 Connecting to VC: ${voiceChannel.name} (${voiceChannel.guild.name})...`);
+  console.log(`🔌 Connecting to VC: ${voiceChannel.name} (${voiceChannel.guild.name})... [attempt ${attempt}/3]`);
+  console.log(`   🔐 Encryption: ${encryptionLib} | Guild: ${voiceChannel.guild.id} | Channel: ${voiceChannel.id}`);
 
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
@@ -234,12 +297,13 @@ async function connectToVC(voiceChannel) {
     selfDeaf: true,
   });
 
-  // ── Auto-reconnect on disconnect ──
-  // When voice server changes (Discord maintenance, region change),
-  // the connection drops to Disconnected → Signalling → Ready
+  // ── Track all state transitions for diagnostics ──
+  const stateLog = [];
   connection.on('stateChange', async (oldState, newState) => {
     const oldS = oldState.status;
     const newS = newState.status;
+    const ts = Date.now();
+    stateLog.push({ from: oldS, to: newS, time: ts });
     console.log(`🎤 Voice: ${oldS} → ${newS}`);
 
     if (newS === VoiceConnectionStatus.Ready) {
@@ -247,7 +311,7 @@ async function connectToVC(voiceChannel) {
     }
 
     if (newS === VoiceConnectionStatus.Connecting) {
-      console.log('   ↳ Received voice server info, setting up networking...');
+      console.log('   ↳ Received VOICE_SERVER_UPDATE, setting up UDP networking...');
     }
 
     // Handle disconnect — try to auto-reconnect
@@ -255,24 +319,22 @@ async function connectToVC(voiceChannel) {
       const reason = newState.reason;
       console.log(`   ↳ ⚠️ Disconnected! Reason: ${reason}, closeCode: ${newState.closeCode}`);
 
-      // If WebSocket closed with code 4014 (voice server changed), try reconnecting
       try {
-        // Race: either get back to signalling (will auto-reconnect) or ready
         await Promise.race([
           entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
           entersState(connection, VoiceConnectionStatus.Ready, 5_000),
         ]);
         console.log('   ↳ ✅ Reconnected after disconnect!');
       } catch (reconnectErr) {
-        // Reconnect failed — destroy connection and let user retry
         console.error('   ↳ ❌ Reconnect failed, destroying connection');
         try { connection.destroy(); } catch (e) {}
       }
     }
 
-    // Connection went back from Connecting to Signalling — networking failed
+    // Connection went back from Connecting to Signalling — networking/encryption failed
     if (oldS === VoiceConnectionStatus.Connecting && newS === VoiceConnectionStatus.Signalling) {
-      console.log('   ↳ ❌ FAILED during connection — went back to signalling (UDP/encryption issue)');
+      console.log('   ↳ ❌ FAILED at networking stage — UDP/encryption issue');
+      console.log(`   ↳ Encryption lib in use: ${encryptionLib}`);
     }
   });
 
@@ -282,7 +344,7 @@ async function connectToVC(voiceChannel) {
     console.error('   Stack:', err.stack);
   });
 
-  // Log debug messages — critical for diagnosing UDP/encryption issues
+  // Log debug messages — critical for diagnosing issues
   connection.on('debug', (msg) => {
     console.log(`🔍 [Voice] ${msg}`);
   });
@@ -295,6 +357,7 @@ async function connectToVC(voiceChannel) {
   } catch (err) {
     const finalState = connection.state.status;
     console.error(`❌ Voice connection FAILED — final state: ${finalState}`);
+    console.error(`   State transitions: ${stateLog.map(s => `${s.from}→${s.to}`).join(', ')}`);
 
     // Log dependency report on failure
     try {
@@ -303,35 +366,31 @@ async function connectToVC(voiceChannel) {
       console.error(generateDependencyReport());
     } catch (e) {}
 
-    // Specific diagnosis based on the failure state
-    if (finalState === VoiceConnectionStatus.Signalling) {
-      console.error('   → Stuck at signalling: Never received VOICE_SERVER_UPDATE');
-      console.error('   → Possible causes:');
-      console.error('     1. Bot missing Connect/Speak permissions in the channel');
-      console.error('     2. Bot not invited with correct OAuth2 scopes');
-      console.error('     3. Discord gateway connection issue');
-      console.error('     4. Encryption library not loaded properly');
-    } else if (finalState === VoiceConnectionStatus.Connecting) {
-      console.error('   → Stuck at connecting: Received server info but UDP/encryption failed');
-      console.error('   → Likely cause: Outbound UDP is BLOCKED by your hosting provider');
-      console.error('   → Discord voice requires outbound UDP for audio streaming');
-      console.error('   → SOLUTION: Use a host that allows UDP (Fly.io, VPS, etc.)');
-    } else if (finalState === VoiceConnectionStatus.Disconnected) {
-      console.error('   → Disconnected: Voice WebSocket was closed');
-    }
-
+    // Destroy the failed connection
     try { connection.destroy(); } catch (e) {}
 
-    // Check permissions
-    const perms = voiceChannel.permissionsFor(voiceChannel.guild.members.me);
-    const missing = [];
-    if (perms && !perms.has('Connect')) missing.push('Connect');
-    if (perms && !perms.has('Speak')) missing.push('Speak');
-    if (missing.length > 0) {
-      throw new Error(`Missing **${missing.join('** & **')}** permission in ${voiceChannel.name}!`);
+    // Specific diagnosis based on the failure state
+    if (finalState === VoiceConnectionStatus.Signalling) {
+      console.error('   → Stuck at signalling: Never received VOICE_SERVER_UPDATE from Discord');
+      console.error('   → This means Discord gateway never sent the voice server info');
+      console.error('   → Possible causes:');
+      console.error('     1. Bot missing Connect/Speak permissions in the channel');
+      console.error('     2. Bot not invited with correct OAuth2 scopes (bot+applications.commands)');
+      console.error('     3. Discord gateway connection issue (try restarting the bot)');
+      console.error('     4. Voice channel is in a different region (rare)');
+      console.error('   → Will retry up to 3 times...');
+    } else if (finalState === VoiceConnectionStatus.Connecting) {
+      console.error('   → Stuck at connecting: Got server info but UDP/encryption failed');
+      console.error('   → Likely cause: Outbound UDP is BLOCKED by your hosting provider');
+      console.error('   → SOLUTION: Use a host that allows UDP (Fly.io, VPS, etc.)');
     }
-    if (voiceChannel.full && !perms?.has('Administrate')) {
-      throw new Error(`${voiceChannel.name} is **full**! Make room or give me Admin.`);
+
+    // ═══ RETRY LOGIC ═══
+    // If stuck at signalling, retry — sometimes Discord gateway is slow
+    if (finalState === VoiceConnectionStatus.Signalling && attempt < 3) {
+      console.log(`🔄 Retrying voice connection (attempt ${attempt + 1}/3)...`);
+      await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+      return connectToVC(voiceChannel, attempt + 1);
     }
 
     // Provide specific error message based on failure state
@@ -342,8 +401,9 @@ async function connectToVC(voiceChannel) {
         `Discord voice needs outbound UDP. Ask the bot owner to check hosting.`;
     } else if (finalState === VoiceConnectionStatus.Signalling) {
       errorMsg =
-        `Voice failed at **signalling** — couldn't reach Discord voice server.\n` +
-        `Try: re-invite bot, different voice channel, or check bot permissions.`;
+        `Voice failed at **signalling** after ${attempt} attempt(s).\n` +
+        `Discord didn't send voice server info.\n` +
+        `Try: re-invite the bot with **bot+applications.commands** scope, or try a different voice channel.`;
     } else {
       errorMsg =
         `Voice connection stuck at **${finalState}**.\n` +
@@ -1363,6 +1423,8 @@ module.exports = {
   musicState: searchState,  // Aliased for index.js compatibility
   MUSIC_COLORS,
   MUSIC_EMOJIS,
+  encryptionReady,  // v2.1.0: Export encryption status
+  encryptionLib,    // v2.1.0: Export which encryption lib is in use
   handlePlay, handleSearch, handleSkip, handleStop, handlePause,
   handleQueue, handleVolume, handleNowPlaying, handleLoop, handleShuffle,
   handlePrevious, handleJump, handleRemove, handleFilter, handleLyrics, handleHelp,
