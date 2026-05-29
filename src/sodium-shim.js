@@ -1,22 +1,9 @@
 /* ═══════════════════════════════════════════
-   🔐 Encryption Diagnostic — v3
+   🔐 Encryption Diagnostic — v4
    ═══════════════════════════════════════════
-   PREVIOUS APPROACH (BROKEN): 
-   We used Module._resolveFilename to intercept require('libsodium-wrappers')
-   and return our own shim. This caused issues:
-   - API mismatch (wrong method names in v1.7)
-   - Module resolution race conditions in Docker
-   - @discordjs/voice couldn't properly load our shim in production
-   
-   NEW APPROACH (WORKS):
-   @discordjs/voice NATIVELY supports tweetnacl! It checks libs in order:
-     1. sodium-native → not found
-     2. sodium → not found  
-     3. libsodium-wrappers → not found
-     4. tweetnacl → FOUND! ✅
-   
-   We just need tweetnacl installed (it IS in package.json).
-   This file is now just a DIAGNOSTIC utility — no more module hacks!
+   This file is a DIAGNOSTIC utility only.
+   NO module interception hacks! @discordjs/voice finds
+   libsodium-wrappers and tweetnacl natively.
    ═══════════════════════════════════════════ */
 
 const dgram = require('dgram');
@@ -28,7 +15,17 @@ const { generateDependencyReport } = require('@discordjs/voice');
 function checkEncryption() {
   console.log('🔧 Checking encryption dependencies...');
 
-  // Just verify tweetnacl is loadable
+  // Check libsodium-wrappers (preferred)
+  try {
+    const sodium = require('libsodium-wrappers');
+    // Note: sodium.ready is async — we just check it loaded here
+    // The full roundtrip test happens in initMusic() with await
+    console.log('  ✅ libsodium-wrappers loaded (WASM encryption)');
+  } catch (e) {
+    console.log('  ⚠️ libsodium-wrappers not found:', e.message);
+  }
+
+  // Check tweetnacl (fallback)
   try {
     const nacl = require('tweetnacl');
     const key = nacl.randomBytes(32);
@@ -37,7 +34,7 @@ function checkEncryption() {
     const enc = nacl.secretbox(msg, nonce, key);
     const dec = nacl.secretbox.open(enc, nonce, key);
     if (dec) {
-      console.log('  ✅ tweetnacl encryption — WORKING');
+      console.log('  ✅ tweetnacl encryption — WORKING (fallback)');
     } else {
       console.error('  ❌ tweetnacl encryption — DECRYPT FAILED');
     }

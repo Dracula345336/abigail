@@ -32,7 +32,8 @@ const path = require('path');
 /* ═══════════════════════════════════════════
    🎵 Music Engine Import
    ═══════════════════════════════════════════ */
-// No more sodium-shim interception! @discordjs/voice finds tweetnacl natively.
+// v2.0.0: libsodium-wrappers + @discordjs/opus properly installed
+// No module hacks — @discordjs/voice finds encryption/opus natively
 const { initMusic, handleMusicButton, musicState, MUSIC_COLORS, MUSIC_EMOJIS } = require('./music');
 
 /* ═══════════════════════════════════════════
