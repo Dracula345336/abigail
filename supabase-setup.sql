@@ -89,10 +89,28 @@ CREATE TABLE IF NOT EXISTS hc_profiles (
   total_sixes      INTEGER NOT NULL DEFAULT 0,
   win_streak       INTEGER NOT NULL DEFAULT 0,
   best_win_streak  INTEGER NOT NULL DEFAULT 0,
+  total_catches    INTEGER NOT NULL DEFAULT 0,
+  mmr              INTEGER NOT NULL DEFAULT 1000,
   created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. Disable RLS on all tables
+-- 9. Create hc_match_history table
+CREATE TABLE IF NOT EXISTS hc_match_history (
+  match_id        TEXT NOT NULL PRIMARY KEY,
+  players         JSONB DEFAULT '[]',
+  scores          JSONB DEFAULT '{}',
+  winner          TEXT,
+  overs           INTEGER DEFAULT 1,
+  wickets         INTEGER DEFAULT 2,
+  start_time      TIMESTAMPTZ,
+  end_time        TIMESTAMPTZ,
+  catch_chances   INTEGER DEFAULT 0,
+  catches_taken   INTEGER DEFAULT 0,
+  catches_dropped INTEGER DEFAULT 0,
+  milestones      JSONB DEFAULT '[]'
+);
+
+-- 10. Disable RLS on all tables
 ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mimic_access DISABLE ROW LEVEL SECURITY;
 ALTER TABLE wallets DISABLE ROW LEVEL SECURITY;
@@ -101,3 +119,4 @@ ALTER TABLE pool_donors DISABLE ROW LEVEL SECURITY;
 ALTER TABLE afk_break_access DISABLE ROW LEVEL SECURITY;
 ALTER TABLE afk_break_access_config DISABLE ROW LEVEL SECURITY;
 ALTER TABLE hc_profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE hc_match_history DISABLE ROW LEVEL SECURITY;
