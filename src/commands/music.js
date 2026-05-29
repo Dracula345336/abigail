@@ -85,26 +85,7 @@ module.exports = {
             .setMinValue(1).setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('filter')
-        .setDescription('🎛️ Apply audio filters/effects')
-        .addStringOption(opt =>
-          opt.setName('name')
-            .setDescription('Filter name')
-            .setRequired(true)
-            .addChoices(
-              { name: '⬅️ Off (clear all filters)', value: 'off' },
-              { name: '🎧 3D', value: '3d' },
-              { name: '🔊 Bass Boost', value: 'bassboost' },
-              { name: '📣 Echo', value: 'echo' },
-              { name: '🎤 Karaoke', value: 'karaoke' },
-              { name: '⚡ Nightcore', value: 'nightcore' },
-              { name: '🌅 Vaporwave', value: 'vaporwave' },
-              { name: '🎸 Flanger', value: 'flanger' },
-              { name: '🚪 Gate', value: 'gate' },
-              { name: '🔊 Haas', value: 'haas' },
-              { name: '⏪ Reverse', value: 'reverse' },
-              { name: '🔈 Surround', value: 'surround' },
-              { name: '📉 Tremolo', value: 'tremolo' },
-            )))
+        .setDescription('🎛️ Audio filters (info)'))
     .addSubcommand(sub =>
       sub.setName('lyrics')
         .setDescription('📝 Search for song lyrics')

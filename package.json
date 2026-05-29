@@ -1,12 +1,11 @@
 {
   "name": "sweetheart-bot",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A Discord bot with AFK, Mimic, Hand Cricket, and Music systems",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/migrate.js && node src/index.js",
-    "deploy": "node src/deploy-commands.js",
-    "postinstall": "node -e \"try{require('@distube/yt-dlp')}catch(e){console.log('yt-dlp will be installed on first run')}\""
+    "deploy": "node src/deploy-commands.js"
   },
   "keywords": ["discord", "bot", "afk", "discordjs", "supabase", "music", "handcricket"],
   "author": "Dracula345336",
@@ -16,7 +15,8 @@
     "@supabase/supabase-js": "^2.43.0",
     "dotenv": "^16.4.5",
     "ws": "^8.18.0",
-    "distube": "^4.2.1",
-    "@distube/yt-dlp": "^1.1.3"
+    "play-dl": "^1.9.7",
+    "@discordjs/voice": "^0.17.0",
+    "libsodium-wrappers": "^0.7.13"
   }
 }
