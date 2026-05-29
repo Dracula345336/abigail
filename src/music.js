@@ -108,6 +108,15 @@ let musicReady = false;
 
 async function initMusic(client) {
   try {
+    // Check critical voice dependencies first
+    try {
+      require('@discordjs/opus');
+      console.log('✅ @discordjs/opus loaded — voice audio encoding ready');
+    } catch (opusErr) {
+      console.warn('⚠️  @discordjs/opus NOT available! Voice may not work.');
+      console.warn('   Install it: npm install @discordjs/opus');
+    }
+
     playdl = require('play-dl');
 
     // Attempt Spotify token setup (optional — won't fail without creds)
@@ -152,8 +161,8 @@ async function connectToVC(voiceChannel) {
   // Reuse existing connection if available and healthy
   const existing = getVoiceConnection(voiceChannel.guild.id);
   if (existing && existing.state.status !== VoiceConnectionStatus.Destroyed) {
-    // If already ready, return immediately
     if (existing.state.status === VoiceConnectionStatus.Ready || existing.state.status === VoiceConnectionStatus.Signalling) {
+      console.log(`♻️ Reusing existing voice connection in ${voiceChannel.guild.name}`);
       return existing;
     }
   }
@@ -163,6 +172,8 @@ async function connectToVC(voiceChannel) {
     try { existing.destroy(); } catch (e) {}
   }
 
+  console.log(`🔌 Connecting to VC: ${voiceChannel.name} (${voiceChannel.guild.name})...`);
+
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
     guildId: voiceChannel.guild.id,
@@ -170,17 +181,32 @@ async function connectToVC(voiceChannel) {
     group: 'default',
   });
 
-  // Handle connection state transitions with retries
+  // Monitor connection state changes for debugging
+  connection.on('stateChange', (oldState, newState) => {
+    console.log(`🎤 Voice state: ${oldState.status} → ${newState.status}`);
+  });
+
+  // Wait for Ready state with generous timeout
   try {
-    // Wait for signalling first, then ready
-    await entersState(connection, VoiceConnectionStatus.Signalling, 10_000);
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
     console.log(`✅ Voice connected to ${voiceChannel.name} (${voiceChannel.guild.name})`);
     return connection;
   } catch (err) {
-    console.error('❌ Voice connection failed:', err.message);
+    console.error('❌ Voice connection failed after 30s — states:', connection.state.status);
     try { connection.destroy(); } catch (e) {}
-    throw new Error('Could not connect to voice channel. Make sure I have **Connect** and **Speak** permissions, and the VC is not full!');
+
+    // Check common issues and give a helpful error
+    const perms = voiceChannel.permissionsFor(voiceChannel.guild.members.me);
+    const missing = [];
+    if (perms && !perms.has('Connect')) missing.push('Connect');
+    if (perms && !perms.has('Speak')) missing.push('Speak');
+    if (missing.length > 0) {
+      throw new Error(`Missing **${missing.join('** and **')}** permission(s) in ${voiceChannel.name}! Give me those perms and try again.`);
+    }
+    if (voiceChannel.full && !perms?.has('Administrate')) {
+      throw new Error(`${voiceChannel.name} is **full**! Make room or give me Admin permission to bypass user limit.`);
+    }
+    throw new Error('Could not connect to voice channel after 30 seconds. Try:\n• Check if I have **Connect** and **Speak** permissions\n• Make sure the VC is not full\n• Kick and re-invite the bot if issues persist');
   }
 }
 
