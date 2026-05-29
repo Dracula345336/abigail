@@ -7,10 +7,11 @@
    ✅ Name search + URL playback both supported
    ═══════════════════════════════════════════ */
 
-// 🔐 CRITICAL: Load sodium shim BEFORE @discordjs/voice!
-// This provides pure-JS encryption (tweetnacl) as a drop-in
-// replacement for libsodium-wrappers (which fails on many hosts)
-require('./sodium-shim');
+// 🔐 No more sodium-shim interception!
+// @discordjs/voice NATIVELY supports tweetnacl — it finds it automatically.
+// Just need tweetnacl installed (it IS in package.json)
+// The old Module._resolveFilename hack was causing issues in production.
+const { checkEncryption, testUDP } = require('./sodium-shim');
 
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const {
@@ -22,7 +23,6 @@ const {
   getVoiceConnection,
   entersState,
   StreamType,
-  generateDependencyReport,
 } = require('@discordjs/voice');
 
 /* ═══════════════════════════════════════════
@@ -125,50 +125,17 @@ async function initMusic(client) {
     }
     if (!hasOpus) console.error('  ❌ NO Opus encoder! Audio will not play.');
 
-    // Encryption check — verify ACTUAL methods exist (not just module loads)
-    let hasEncryption = false;
-    try {
-      const sodium = require('libsodium-wrappers');
-      if (sodium.crypto_secretbox_open_easy && sodium.crypto_secretbox_easy && sodium.randombytes_buf) {
-        hasEncryption = true;
-        console.log('  ✅ libsodium-wrappers — encryption loaded + API verified');
-        console.log('     crypto_secretbox_open_easy:', typeof sodium.crypto_secretbox_open_easy);
-        console.log('     crypto_secretbox_easy:', typeof sodium.crypto_secretbox_easy);
-        console.log('     randombytes_buf:', typeof sodium.randombytes_buf);
-        console.log('     ready:', sodium.ready ? 'Promise ✅' : 'missing ❌');
-      } else {
-        console.error('  ❌ libsodium-wrappers loaded but WRONG API!');
-        console.error('     crypto_secretbox_open_easy:', typeof sodium.crypto_secretbox_open_easy);
-        console.error('     crypto_secretbox_easy:', typeof sodium.crypto_secretbox_easy);
-        console.error('     randombytes_buf:', typeof sodium.randombytes_buf);
-      }
-    } catch (e) {
-      console.warn('  ⚠️  libsodium-wrappers not found:', e.message);
-    }
-    if (!hasEncryption) {
-      try {
-        require('tweetnacl');
-        hasEncryption = true;
-        console.log('  ✅ tweetnacl — encryption (direct fallback)');
-      } catch (e) {}
-    }
-    if (!hasEncryption) console.error('  ❌ NO encryption! Voice will NOT connect!');
+    // Check encryption (using diagnostic utility — no more module hacks)
+    checkEncryption();
 
-    // @discordjs/voice check
-    try {
-      const voice = require('@discordjs/voice');
-      console.log('  ✅ @discordjs/voice — voice engine');
-      // Generate and log the dependency report for debugging
-      try {
-        const report = voice.generateDependencyReport();
-        console.log('  📋 Dependency Report:');
-        report.split('\n').forEach(line => console.log('     ' + line));
-      } catch (e) {}
-    } catch (e) {
-      console.error('  ❌ @discordjs/voice missing!');
+    // ═══ Test UDP connectivity (Discord voice REQUIRES UDP) ═══
+    const udpWorks = await testUDP();
+    if (!udpWorks) {
+      console.error('⚠️  WARNING: UDP outbound test FAILED!');
+      console.error('   Discord voice requires outbound UDP.');
+      console.error('   If your host blocks UDP, voice will NOT work.');
+      console.error('   Consider: Fly.io, a VPS, or any host with UDP support.');
     }
-
-    console.log('  ✅ sodium-shim v2 — correct libsodium-wrappers API via tweetnacl');
 
     // ═══ Initialize play-dl ═══
     playdl = require('play-dl');
@@ -239,29 +206,30 @@ async function connectToVC(voiceChannel) {
     const newS = newState.status;
     console.log(`🎤 Voice: ${oldS} → ${newS}`);
 
-    // Log networking details during connection
     if (newS === VoiceConnectionStatus.Connecting) {
-      console.log('   ↳ Setting up UDP connection...');
-    }
-    if (newS === VoiceConnectionStatus.Signalling) {
-      console.log('   ↳ WebSocket connected, negotiating voice protocol...');
+      console.log('   ↳ Received voice server info, setting up networking...');
     }
     if (newS === VoiceConnectionStatus.Ready) {
-      console.log('   ↳ Voice connection READY!');
+      console.log('   ↳ ✅ Voice connection READY!');
     }
     if (newS === VoiceConnectionStatus.Disconnected) {
-      console.log('   ↳ Voice disconnected, will attempt reconnect...');
+      const reason = newState.reason;
+      console.log(`   ↳ ❌ Disconnected! Reason: ${reason}, closeCode: ${newState.closeCode}`);
+    }
+    if (oldS === VoiceConnectionStatus.Connecting && newS === VoiceConnectionStatus.Signalling) {
+      console.log('   ↳ ❌ FAILED during connection — went back to signalling (networking closed)');
     }
   });
 
-  // Also log networking errors
+  // Log ALL errors with full stack
   connection.on('error', (err) => {
     console.error('🔌 Voice connection error:', err.message);
+    console.error('   Stack:', err.stack);
   });
 
+  // Log ALL debug messages — critical for diagnosing UDP/encryption issues
   connection.on('debug', (msg) => {
-    // Log ALL debug messages for first connections — needed to diagnose signalling issues
-    console.log(`🔍 Voice debug: ${msg}`);
+    console.log(`🔍 [Voice] ${msg}`);
   });
 
   // Wait for Ready state with timeout
@@ -271,21 +239,27 @@ async function connectToVC(voiceChannel) {
     return connection;
   } catch (err) {
     const finalState = connection.state.status;
-    console.error(`❌ Voice connection FAILED — stuck at: ${finalState}`);
+    console.error(`❌ Voice connection FAILED — final state: ${finalState}`);
 
-    // Log the full dependency report to help diagnose
+    // Log dependency report on failure
     try {
-      console.error('📋 Dependency Report on failure:');
+      const { generateDependencyReport } = require('@discordjs/voice');
+      console.error('📋 Dependency Report:');
       console.error(generateDependencyReport());
     } catch (e) {}
 
-    // Try to get more info from the connection state
+    // Specific diagnosis based on the failure state
     if (finalState === VoiceConnectionStatus.Signalling) {
-      console.error('   → Stuck at signalling: encryption module or network issue');
+      console.error('   → Stuck at signalling: Never received VOICE_SERVER_UPDATE');
+      console.error('   → This means Discord gateway didn\'t send voice server info');
+      console.error('   → Check: Bot has Connect permission? Is it in the guild?');
     } else if (finalState === VoiceConnectionStatus.Connecting) {
-      console.error('   → Stuck at connecting: UDP port might be blocked');
+      console.error('   → Stuck at connecting: Received server info but UDP/encryption failed');
+      console.error('   → Likely cause: Outbound UDP is BLOCKED by your hosting provider');
+      console.error('   → Discord voice requires outbound UDP for audio streaming');
+      console.error('   → SOLUTION: Use a host that allows UDP (Fly.io, VPS, etc.)');
     } else if (finalState === VoiceConnectionStatus.Disconnected) {
-      console.error('   → Disconnected: WebSocket to voice server lost');
+      console.error('   → Disconnected: Voice WebSocket was closed');
     }
 
     try { connection.destroy(); } catch (e) {}
@@ -302,12 +276,23 @@ async function connectToVC(voiceChannel) {
       throw new Error(`${voiceChannel.name} is **full**! Make room or give me Admin.`);
     }
 
-    throw new Error(
-      `Voice connection stuck at **${finalState}**. Possible fixes:\n` +
-      `• Re-invite the bot with correct permissions\n` +
-      `• Try a different voice channel\n` +
-      `• Contact bot owner — might be a server/hosting issue`
-    );
+    // Provide specific error message based on failure state
+    let errorMsg;
+    if (finalState === VoiceConnectionStatus.Connecting) {
+      errorMsg = 
+        `Voice failed at **connecting** — UDP might be blocked by your host.\n` +
+        `Discord voice needs outbound UDP. Ask the bot owner to check hosting.`;
+    } else if (finalState === VoiceConnectionStatus.Signalling) {
+      errorMsg = 
+        `Voice failed at **signalling** — couldn't reach Discord voice server.\n` +
+        `Try: re-invite bot, different voice channel, or check bot permissions.`;
+    } else {
+      errorMsg = 
+        `Voice connection stuck at **${finalState}**.\n` +
+        `Try: re-invite bot with correct permissions, or different voice channel.`;
+    }
+
+    throw new Error(errorMsg);
   }
 }
 

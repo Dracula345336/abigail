@@ -16,9 +16,9 @@ RUN npm install --production
 # Copy ALL application files
 COPY . .
 
-# Final dependency check at build time — verify ACTUAL API methods
+# Verify voice dependencies at build time
 RUN echo "═══════════════════════════════════════" && \
-    echo "🔧 Voice Dependency Check (v1.8.0):" && \
+    echo "🔧 Voice Dependency Check (v1.9.0):" && \
     node -e " \
     const mods = { \
       '@discordjs/voice': 'Voice engine', \
@@ -29,25 +29,28 @@ RUN echo "═══════════════════════�
     Object.entries(mods).forEach(([m, label]) => { \
       try { require(m); console.log('  ✅ ' + m + ' (' + label + ')'); } \
       catch(e) { console.log('  ❌ ' + m + ' — ' + e.message); } \
-    }); \
-    console.log('  ✅ sodium-shim v2 (correct libsodium-wrappers API)');" && \
-    echo "--- Checking libsodium-wrappers API methods ---" && \
-    node -e " \
-    require('./src/sodium-shim'); \
-    const sodium = require('libsodium-wrappers'); \
-    const methods = ['crypto_secretbox_open_easy', 'crypto_secretbox_easy', 'randombytes_buf']; \
-    methods.forEach(m => { \
-      console.log('  ' + (typeof sodium[m] === 'function' ? '✅' : '❌') + ' libsodium-wrappers.' + m + ' = ' + typeof sodium[m]); \
-    }); \
-    console.log('  ' + (sodium.ready ? '✅' : '❌') + ' libsodium-wrappers.ready = ' + (sodium.ready ? 'Promise' : 'missing'));" && \
+    });" && \
     echo "--- @discordjs/voice Dependency Report ---" && \
     node -e " \
-    require('./src/sodium-shim'); \
     const { generateDependencyReport } = require('@discordjs/voice'); \
     console.log(generateDependencyReport());" && \
+    echo "--- tweetnacl Encryption Test ---" && \
+    node -e " \
+    const nacl = require('tweetnacl'); \
+    const k = nacl.randomBytes(32); const n = nacl.randomBytes(24); \
+    const enc = nacl.secretbox(new Uint8Array([1,2,3]), n, k); \
+    const dec = nacl.secretbox.open(enc, n, k); \
+    console.log('  ' + (dec ? '✅' : '❌') + ' tweetnacl encrypt/decrypt roundtrip');" && \
+    echo "--- UDP Socket Test ---" && \
+    node -e " \
+    const dgram = require('dgram'); \
+    const s = dgram.createSocket('udp4'); \
+    s.on('error', (e) => { console.log('  ❌ UDP socket error:', e.message); s.close(); process.exit(0); }); \
+    s.bind(0, () => { console.log('  ✅ UDP socket can bind on port', s.address().port); s.close(); }); \
+    setTimeout(() => process.exit(0), 2000);" && \
     echo "═══════════════════════════════════════"
 
-# Verify commands
+# Verify commands exist
 RUN ls src/commands/
 
 # Start bot

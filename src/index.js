@@ -32,8 +32,7 @@ const path = require('path');
 /* ═══════════════════════════════════════════
    🎵 Music Engine Import
    ═══════════════════════════════════════════ */
-// Load sodium shim FIRST — provides pure JS encryption for voice
-require('./sodium-shim');
+// No more sodium-shim interception! @discordjs/voice finds tweetnacl natively.
 const { initMusic, handleMusicButton, musicState, MUSIC_COLORS, MUSIC_EMOJIS } = require('./music');
 
 /* ═══════════════════════════════════════════

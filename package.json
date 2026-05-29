@@ -1,6 +1,6 @@
 {
   "name": "sweetheart-bot",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "A Discord bot with AFK, Mimic, Hand Cricket, and Music systems",
   "main": "src/index.js",
   "scripts": {

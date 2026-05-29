@@ -1,141 +1,132 @@
 /* ═══════════════════════════════════════════
-   🔐 Sodium Shim v2 — Proper libsodium-wrappers API
+   🔐 Encryption Diagnostic — v3
    ═══════════════════════════════════════════
-   @discordjs/voice checks encryption libs in this order:
-     1. sodium-native
-     2. sodium
-     3. libsodium-wrappers  ← we intercept this
-     4. tweetnacl           ← fallback
+   PREVIOUS APPROACH (BROKEN): 
+   We used Module._resolveFilename to intercept require('libsodium-wrappers')
+   and return our own shim. This caused issues:
+   - API mismatch (wrong method names in v1.7)
+   - Module resolution race conditions in Docker
+   - @discordjs/voice couldn't properly load our shim in production
    
-   It calls: libsodium-wrappers.crypto_secretbox_open_easy()
-             libsodium-wrappers.crypto_secretbox_easy()
-             libsodium-wrappers.randombytes_buf()
+   NEW APPROACH (WORKS):
+   @discordjs/voice NATIVELY supports tweetnacl! It checks libs in order:
+     1. sodium-native → not found
+     2. sodium → not found  
+     3. libsodium-wrappers → not found
+     4. tweetnacl → FOUND! ✅
    
-   Previous shim was BROKEN — it exposed crypto_secretbox / 
-   crypto_secretbox_open (wrong API!) which made @discordjs/voice
-   set encryption methods to undefined → voice stuck at signalling.
-   
-   This shim provides the CORRECT libsodium-wrappers API using
-   tweetnacl as the underlying crypto engine. No native deps needed.
+   We just need tweetnacl installed (it IS in package.json).
+   This file is now just a DIAGNOSTIC utility — no more module hacks!
    ═══════════════════════════════════════════ */
 
-const nacl = require('tweetnacl');
-
-const api = {
-  // ═══ Constants that @discordjs/voice checks ═══
-  crypto_secretbox_KEYBYTES: nacl.secretbox.keyLength,     // 32
-  crypto_secretbox_NONCEBYTES: nacl.secretbox.nonceLength, // 24
-  crypto_box_MACBYTES: nacl.secretbox.overheadLength,      // 16
-
-  /**
-   * Decrypt a message (libsodium-wrappers API)
-   * @param {Buffer} ciphertext - Encrypted data (MAC + plaintext)
-   * @param {Buffer} nonce - 24-byte nonce
-   * @param {Uint8Array} secretKey - 32-byte key
-   * @returns {Buffer|null} Decrypted data, or null on failure
-   */
-  crypto_secretbox_open_easy(ciphertext, nonce, secretKey) {
-    const cipherU8 = toUint8Array(ciphertext);
-    const nonceU8 = toUint8Array(nonce);
-    const keyU8 = toUint8Array(secretKey);
-
-    const decrypted = nacl.secretbox.open(cipherU8, nonceU8, keyU8);
-    if (!decrypted) return null;
-    return Buffer.from(decrypted);
-  },
-
-  /**
-   * Encrypt a message (libsodium-wrappers API)
-   * @param {Buffer} message - Plaintext data
-   * @param {Buffer} nonce - 24-byte nonce
-   * @param {Uint8Array} secretKey - 32-byte key
-   * @returns {Buffer} Encrypted data (MAC + ciphertext)
-   */
-  crypto_secretbox_easy(message, nonce, secretKey) {
-    const msgU8 = toUint8Array(message);
-    const nonceU8 = toUint8Array(nonce);
-    const keyU8 = toUint8Array(secretKey);
-
-    const encrypted = nacl.secretbox(msgU8, nonceU8, keyU8);
-    if (!encrypted) {
-      throw new Error('crypto_secretbox_easy: encryption failed');
-    }
-    return Buffer.from(encrypted);
-  },
-
-  /**
-   * Generate random bytes
-   * @param {Buffer} buffer - Buffer to fill with random bytes
-   */
-  randombytes_buf(buffer) {
-    const bytes = nacl.randomBytes(buffer.length);
-    buffer.set(bytes);
-  },
-
-  // ═══ Promise-based ready (libsodium-wrappers compatibility) ═══
-  // @discordjs/voice does: if (lib.ready) await lib.ready
-  ready: Promise.resolve(true),
-};
+const dgram = require('dgram');
+const { generateDependencyReport } = require('@discordjs/voice');
 
 /**
- * Convert Buffer/Uint8Array to Uint8Array
+ * Verify encryption is working at startup
  */
-function toUint8Array(buf) {
-  if (buf instanceof Uint8Array) return buf;
-  if (Buffer.isBuffer(buf)) return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-  return new Uint8Array(buf);
-}
+function checkEncryption() {
+  console.log('🔧 Checking encryption dependencies...');
 
-// ═══════════════════════════════════════════
-// INJECT INTO REQUIRE CACHE
-// ═══════════════════════════════════════════
-// This makes require('libsodium-wrappers') return our shim
-// @discordjs/voice will find it and use it for voice encryption
-// ═══════════════════════════════════════════
-
-const Module = require('module');
-
-if (!global.__sodiumShimV2Installed) {
-  global.__sodiumShimV2Installed = true;
-
-  // Store original resolve
-  const originalResolve = Module._resolveFilename;
-
-  // Patch module resolution
-  Module._resolveFilename = function (request, parent, isMain, options) {
-    // Intercept libsodium-wrappers and libsodium-wrappers-sumo
-    if (request === 'libsodium-wrappers' || request === 'libsodium-wrappers-sumo') {
-      // Return our shim's path instead of looking for the real package
-      return require.resolve(__filename);
+  // Just verify tweetnacl is loadable
+  try {
+    const nacl = require('tweetnacl');
+    const key = nacl.randomBytes(32);
+    const nonce = nacl.randomBytes(24);
+    const msg = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+    const enc = nacl.secretbox(msg, nonce, key);
+    const dec = nacl.secretbox.open(enc, nonce, key);
+    if (dec) {
+      console.log('  ✅ tweetnacl encryption — WORKING');
+    } else {
+      console.error('  ❌ tweetnacl encryption — DECRYPT FAILED');
     }
-    return originalResolve.call(this, request, parent, isMain, options);
-  };
-
-  // Inject into require cache so require() returns our api object directly
-  const shimPath = require.resolve(__filename);
-  const shimModule = new Module(shimPath, null);
-  shimModule.filename = shimPath;
-  shimModule.exports = api;
-  shimModule.loaded = true;
-  require.cache[shimPath] = shimModule;
-
-  // Also pre-cache for the bare name (belt & suspenders)
-  const barePaths = ['libsodium-wrappers', 'libsodium-wrappers-sumo'];
-  for (const p of barePaths) {
-    if (!require.cache[p]) {
-      const m = new Module(p, null);
-      m.filename = p;
-      m.exports = api;
-      m.loaded = true;
-      require.cache[p] = m;
-    }
+  } catch (e) {
+    console.error('  ❌ tweetnacl not found:', e.message);
   }
 
-  console.log('✅ Sodium shim v2 installed — correct libsodium-wrappers API via tweetnacl');
-  console.log('   crypto_secretbox_open_easy ✅');
-  console.log('   crypto_secretbox_easy ✅');
-  console.log('   randombytes_buf ✅');
-  console.log('   ready (Promise) ✅');
+  // Log the @discordjs/voice dependency report
+  try {
+    console.log('  📋 Voice Dependency Report:');
+    const report = generateDependencyReport();
+    report.split('\n').forEach(line => console.log('     ' + line));
+  } catch (e) {
+    console.error('  ❌ Could not generate dependency report:', e.message);
+  }
 }
 
-module.exports = api;
+/**
+ * Test outbound UDP connectivity
+ * Discord voice requires UDP — if this fails, voice won't work
+ */
+function testUDP() {
+  return new Promise((resolve) => {
+    console.log('🔧 Testing outbound UDP connectivity...');
+    const socket = dgram.createSocket('udp4');
+    const TEST_HOST = '8.8.8.8'; // Google DNS
+    const TEST_PORT = 53;
+    let resolved = false;
+
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        socket.close();
+        console.error('  ❌ UDP test TIMEOUT — outbound UDP might be blocked!');
+        console.error('     Discord voice REQUIRES outbound UDP.');
+        console.error('     If you are on Railway/Render, this may be a hosting limitation.');
+        resolve(false);
+      }
+    }, 5000);
+
+    socket.on('error', (err) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        socket.close();
+        console.error('  ❌ UDP test FAILED:', err.message);
+        console.error('     Outbound UDP is not available — voice will NOT work!');
+        resolve(false);
+      }
+    });
+
+    socket.on('message', () => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        socket.close();
+        console.log('  ✅ UDP outbound — WORKING (can reach external servers)');
+        resolve(true);
+      }
+    });
+
+    // Send a DNS query packet to test UDP
+    try {
+      // Minimal DNS query for google.com
+      const query = Buffer.from([
+        0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x06, 0x67, 0x6f, 0x6f,
+        0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00,
+        0x00, 0x01, 0x00, 0x01
+      ]);
+      socket.send(query, TEST_PORT, TEST_HOST, (err) => {
+        if (err && !resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          socket.close();
+          console.error('  ❌ UDP send failed:', err.message);
+          resolve(false);
+        }
+      });
+    } catch (e) {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        socket.close();
+        console.error('  ❌ UDP test error:', e.message);
+        resolve(false);
+      }
+    }
+  });
+}
+
+module.exports = { checkEncryption, testUDP };
