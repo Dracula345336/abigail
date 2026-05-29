@@ -112,8 +112,6 @@ function initMusic(client) {
       searchSongs: 0,      // 0 = auto-pick first result
       searchCooldown: 30,
       emptyCooldown: 60,
-      youtubeDL: false,     // Use yt-dlp plugin instead
-      updateYouTubeDL: false,
     });
 
     /* ── DisTube Event Handlers ── */
