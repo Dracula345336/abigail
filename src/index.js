@@ -30,14 +30,6 @@ const fs = require('fs');
 const path = require('path');
 
 /* ═══════════════════════════════════════════
-   🎵 Music Engine Import
-   ═══════════════════════════════════════════ */
-// v2.1.0: Pre-initialized encryption (libsodium-wrappers/tweetnacl)
-// @discordjs/opus is optional — opusscript is the reliable fallback
-// No module hacks — @discordjs/voice finds encryption/opus natively
-const { initMusic, handleMusicButton, musicState, MUSIC_COLORS, MUSIC_EMOJIS } = require('./music');
-
-/* ═══════════════════════════════════════════
    ✅  Environment Validation
    ═══════════════════════════════════════════ */
 
@@ -555,7 +547,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,      // Required for Werewolf DM actions (Hand Cricket now uses channel buttons)
     GatewayIntentBits.DirectMessageReactions,
-    GatewayIntentBits.GuildVoiceStates,    // Required for Music — voice channel tracking
+    // GatewayIntentBits.GuildVoiceStates,  // Not needed — music removed
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
@@ -592,19 +584,7 @@ client.mimicAccess = new Map();
 client.once(Events.ClientReady, async () => {
   console.log(`💖 ${client.user.tag} is online and spreading love!`);
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
-  client.user.setActivity('💕 Watching over you | 🎵 /music');
-
-  /* ── 🎵 Initialize Music Engine (play-dl) ── */
-  try {
-    const dt = initMusic(client);
-    if (dt) {
-      console.log('🎵 Music system ready — /music commands available!');
-    } else {
-      console.warn('⚠️  Music system failed to initialize. Check play-dl dependencies.');
-    }
-  } catch (musicErr) {
-    console.warn('⚠️  Music system error:', musicErr.message);
-  }
+  client.user.setActivity('💕 Watching over you | 🏏 /handcricket');
 
   if (!process.env.CLIENT_ID) {
     console.error('⚠️  CLIENT_ID not set — slash commands will NOT be registered!');
@@ -654,22 +634,6 @@ client.on('interactionCreate', async (interaction) => {
   /* ── Button Interactions ── */
   if (interaction.isButton()) {
     const customId = interaction.customId;
-
-    /* ── 🎵 Music Buttons ── */
-    if (customId.startsWith('mu_')) {
-      try {
-        await handleMusicButton(interaction, customId);
-      } catch (error) {
-        console.error('Music button handler error:', error);
-        try {
-          const reply = { content: '🎵 Music button error!', flags: MessageFlags.Ephemeral };
-          interaction.replied || interaction.deferred
-            ? await interaction.followUp(reply)
-            : await interaction.reply(reply);
-        } catch (e) {}
-      }
-      return;
-    }
 
     /* ── 🏏 Hand Cricket Buttons ── */
     if (!customId.startsWith('hc_')) return;
