@@ -31,8 +31,10 @@ module.exports = {
     const customMsg = interaction.options.getString('message');
 
     /* ── Check mimic access ── */
-    const isOwner = interaction.guild.ownerId === interaction.user.id;
-    let hasAccess = isOwner;
+    const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+    const isBotOwner = interaction.user.id === BOT_OWNER_ID;
+    const isServerOwner = interaction.guild.ownerId === interaction.user.id;
+    let hasAccess = isBotOwner || isServerOwner;
 
     // Check Supabase access list (with error handling if table doesn't exist)
     if (!hasAccess && supabase) {

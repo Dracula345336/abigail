@@ -26,12 +26,14 @@ module.exports = {
     const supabase = require('../db');
     const subcommand = interaction.options.getSubcommand();
 
-    // ONLY server owner can manage mimic access
-    const isOwner = interaction.guild.ownerId === interaction.user.id;
+    // ONLY server owner OR bot owner can manage mimic access
+    const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+    const isBotOwner = interaction.user.id === BOT_OWNER_ID;
+    const isServerOwner = interaction.guild.ownerId === interaction.user.id;
 
-    if (!isOwner) {
+    if (!isBotOwner && !isServerOwner) {
       return interaction.reply({
-        content: '🚫 Only the **server owner** can manage mimic access!',
+        content: '🚫 Only the **server owner** or **bot owner** can manage mimic access!',
         flags: MessageFlags.Ephemeral,
       });
     }
