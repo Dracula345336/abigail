@@ -6,7 +6,7 @@ const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js'
    Set BOT_OWNER_ID in your .env or Railway env vars.
    ═══════════════════════════════════════════ */
 
-const OWNER_ID = process.env.BOT_OWNER_ID;
+const OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
 
 function isOwner(userId) {
   if (!OWNER_ID) return false;
