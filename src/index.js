@@ -40,6 +40,13 @@ if (missingEnv.length) {
   process.exit(1);
 }
 
+// Owner control system — set BOT_OWNER_ID in env vars
+if (process.env.BOT_OWNER_ID) {
+  console.log(`👑 Owner control enabled — Owner ID(s): ${process.env.BOT_OWNER_ID}`);
+} else {
+  console.warn('⚠️  BOT_OWNER_ID not set — /owner commands will be disabled. Add your Discord user ID to enable owner controls.');
+}
+
 /* ═══════════════════════════════════════════
    🗄️  Supabase Client
    ═══════════════════════════════════════════ */

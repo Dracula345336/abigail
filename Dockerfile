@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════
-# Abigail Bot — v2.2.0 Production Docker
-# Music removed — AFK, Mimic, Hand Cricket, Werewolf
+# Abigail Bot — v2.3.0 Production Docker
+# Music removed — AFK, Mimic, Hand Cricket, Werewolf, Owner Control
 # ═══════════════════════════════════════════
 FROM node:20-bookworm
 
