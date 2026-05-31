@@ -1664,13 +1664,26 @@ client.on('messageCreate', async (message) => {
   const msgContent = message.content.toLowerCase().trim();
 
   /* ═══════════════════════════════════════════
-     🌐 Translation Command — !tr <text>
+     🌐 Translation Command — !tr (reply to a message)
      ═══════════════════════════════════════════ */
-  if (msgContent.startsWith('!tr')) {
-    const textToTranslate = message.content.slice(3).trim();
-    if (!textToTranslate) {
-      return message.reply('❌ Please provide text to translate! Usage: `!tr <text>`').catch(console.error);
+  if (msgContent === '!tr' || msgContent.startsWith('!tr ')) {
+    let textToTranslate = message.content.slice(3).trim();
+    let repliedMsg = null;
+
+    // Priority: reply message > typed text
+    if (message.reference?.messageId) {
+      try {
+        repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
+        textToTranslate = repliedMsg.content;
+      } catch (e) {
+        // Couldn't fetch replied message, fall back to typed text
+      }
     }
+
+    if (!textToTranslate) {
+      return message.reply('❌ Reply to a message with `!tr` to translate it!').catch(console.error);
+    }
+
     try {
       const result = await translate(textToTranslate, { to: 'en' });
       const embed = new EmbedBuilder()
