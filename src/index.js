@@ -29,7 +29,6 @@ const {
 const fs = require('fs');
 const path = require('path');
 const { translate } = require('@vitalets/google-translate-api');
-const { spawnLootbox, handleLootboxButton } = require('./lootbox');
 
 /* ═══════════════════════════════════════════
    ✅  Environment Validation
@@ -587,7 +586,6 @@ client.mimicLog = new Map();
 client.mimicAccess = new Map();
 client.mimicLogAccess = new Map();
 client.mimicProtected = new Map();
-client.lootboxConfig = new Map();
 
 /* ═══════════════════════════════════════════
    🟢  Ready + Auto-Register Slash Commands
@@ -621,39 +619,6 @@ client.once(Events.ClientReady, async () => {
     console.error('❌ Slash command registration failed:', error.message);
   }
 
-  /* ── Load Lootbox Configs from DB ── */
-  if (supabase) {
-    try {
-      const { data: lootboxConfigs } = await supabase
-        .from('lootbox_config')
-        .select('*');
-      if (lootboxConfigs && lootboxConfigs.length > 0) {
-        for (const cfg of lootboxConfigs) {
-          client.lootboxConfig.set(cfg.guild_id, { enabled: cfg.enabled, channelId: cfg.channel_id });
-          console.log(`🎁 Loaded config: guild=${cfg.guild_id} enabled=${cfg.enabled} channel=${cfg.channel_id}`);
-        }
-        console.log(`🎁 Loaded lootbox configs for ${lootboxConfigs.length} server(s)`);
-      } else {
-        console.log('🎁 No lootbox configs found in DB');
-      }
-    } catch (err) {
-      console.error('Lootbox config load error:', err.message);
-    }
-  }
-
-  /* ── Lootbox Auto-Spawn Timer (every 5 min) ── */
-  setInterval(async () => {
-    const entries = [...client.lootboxConfig.entries()];
-    for (const [guildId, config] of entries) {
-      if (!config.enabled || !config.channelId) continue;
-      const guild = client.guilds.cache.get(guildId);
-      if (!guild) continue;
-      console.log(`🎁 Spawning lootbox in guild=${guild.name} channel=${config.channelId}`);
-      await spawnLootbox(guild, config.channelId);
-    }
-  }, 5 * 60 * 1000);
-
-  console.log(`🎁 Lootbox auto-spawn active (every 5 min) | Configs loaded: ${client.lootboxConfig.size}`);
 });
 
 /* ═══════════════════════════════════════════
@@ -680,22 +645,6 @@ client.on('interactionCreate', async (interaction) => {
   /* ── Button Interactions ── */
   if (interaction.isButton()) {
     const customId = interaction.customId;
-
-    /* ── 🎁 Lootbox Button ── */
-    if (customId === 'lootbox_open') {
-      try {
-        await handleLootboxButton(interaction);
-      } catch (error) {
-        console.error('Lootbox button error:', error);
-        try {
-          const reply = { content: '💔 Lootbox error!', flags: MessageFlags.Ephemeral };
-          interaction.replied || interaction.deferred
-            ? await interaction.followUp(reply)
-            : await interaction.reply(reply);
-        } catch (e) {}
-      }
-      return;
-    }
 
     /* ── 🏏 Hand Cricket Buttons ── */
     if (!customId.startsWith('hc_')) return;
