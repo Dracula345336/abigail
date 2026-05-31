@@ -3,10 +3,10 @@ const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js'
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('mimic-log')
-    .setDescription('📜 See mimic history (mimic access users can view anyone)')
+    .setDescription('📜 See mimic history')
     .addUserOption(option =>
       option.setName('user')
-        .setDescription('View another user\'s log (requires mimic access)')
+        .setDescription('View another user\'s log (requires log access)')
         .setRequired(false))
     .addIntegerOption(option =>
       option.setName('page')
@@ -21,42 +21,42 @@ module.exports = {
     const isBotOwner = interaction.user.id === BOT_OWNER_ID;
     const isServerOwner = interaction.guild.ownerId === interaction.user.id;
 
-    /* ── Check if user has mimic access (can view others' logs) ── */
-    let hasMimicAccess = isBotOwner || isServerOwner;
+    /* ── Check log viewing access (separate from mimic access!) ── */
+    let hasLogAccess = isBotOwner || isServerOwner;
 
-    // Check Supabase access list
-    if (!hasMimicAccess && supabase) {
+    // Check Supabase log_access list
+    if (!hasLogAccess && supabase) {
       try {
         const { data } = await supabase
-          .from('mimic_access')
+          .from('mimic_log_access')
           .select('user_id')
           .eq('guild_id', interaction.guild.id)
           .eq('user_id', interaction.user.id)
           .maybeSingle();
-        hasMimicAccess = !!data;
+        hasLogAccess = !!data;
       } catch (err) {
-        console.error('Mimic access DB check failed:', err.message);
+        console.error('Log access DB check failed:', err.message);
       }
     }
 
-    // Check in-memory access list
-    if (!hasMimicAccess && interaction.client.mimicAccess) {
-      const guildAccess = interaction.client.mimicAccess.get(interaction.guild.id);
-      hasMimicAccess = guildAccess && guildAccess.has(interaction.user.id);
+    // Check in-memory log access list
+    if (!hasLogAccess && interaction.client.mimicLogAccess) {
+      const guildLogAccess = interaction.client.mimicLogAccess.get(interaction.guild.id);
+      hasLogAccess = guildLogAccess && guildLogAccess.has(interaction.user.id);
     }
 
     /* ── Determine lookup target ── */
     const requestedUser = interaction.options.getUser('user');
 
-    // Only users with mimic access can look up others
-    const targetUser = (hasMimicAccess && requestedUser) ? requestedUser : null;
+    // Only users with LOG access can look up others
+    const targetUser = (hasLogAccess && requestedUser) ? requestedUser : null;
     const lookupUserId = targetUser ? targetUser.id : interaction.user.id;
     const lookupName = targetUser ? targetUser.username : 'Your';
 
-    // If user without access tried to look up someone else, warn them
-    if (requestedUser && !hasMimicAccess) {
+    // If user without log access tried to look up someone else
+    if (requestedUser && !hasLogAccess) {
       return interaction.reply({
-        content: '🚫 You need **mimic access** to view other people\'s logs!\nAsk the server owner or bot owner to grant access with `/mimic-access add`.',
+        content: '🚫 You need **log viewing access** to see other people\'s mimic logs!\nThis is separate from mimic access.\nAsk the owner to use `/mimic-access add-log @you`.',
         flags: MessageFlags.Ephemeral,
       });
     }

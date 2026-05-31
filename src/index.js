@@ -583,6 +583,7 @@ if (hcSlashCmd && hcSlashCmd.init) {
 client.snipes = new Map();
 client.mimicLog = new Map();
 client.mimicAccess = new Map();
+client.mimicLogAccess = new Map();
 
 /* ═══════════════════════════════════════════
    🟢  Ready + Auto-Register Slash Commands

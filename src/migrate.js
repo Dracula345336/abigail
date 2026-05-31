@@ -59,12 +59,24 @@ CREATE TABLE IF NOT EXISTS mimic_access (
   UNIQUE(user_id, guild_id)
 );
 
+-- ✅ Mimic LOG access table (separate from mimic access!)
+CREATE TABLE IF NOT EXISTS mimic_log_access (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '',
+  granted_by TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, guild_id)
+);
+
 -- ✅ Disable RLS on ALL tables
 ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE wallets DISABLE ROW LEVEL SECURITY;
 ALTER TABLE server_pools DISABLE ROW LEVEL SECURITY;
 ALTER TABLE pool_donors DISABLE ROW LEVEL SECURITY;
 ALTER TABLE mimic_access DISABLE ROW LEVEL SECURITY;
+ALTER TABLE mimic_log_access DISABLE ROW LEVEL SECURITY;
 
 -- ✅ Hand Cricket profiles table
 CREATE TABLE IF NOT EXISTS hc_profiles (
