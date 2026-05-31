@@ -116,14 +116,38 @@ async function handleLootboxButton(interaction) {
 
   if (item.type === 'timeout') {
     try {
-      if (member.moderatable) {
+      const botMember = await interaction.guild.members.fetchMe();
+      const canTimeout = botMember.permissions.has('ModerateMembers');
+
+      if (!canTimeout) {
+        // Bot doesn't have timeout permission — give coins as fallback
+        const fallbackCoins = Math.floor(Math.random() * 300) + 100;
+        try {
+          const supabase = require('./db');
+          if (supabase) {
+            const { data: wallet } = await supabase
+              .from('wallets')
+              .select('balance')
+              .eq('user_id', interaction.user.id)
+              .eq('guild_id', interaction.guild.id)
+              .maybeSingle();
+            if (wallet) {
+              await supabase.from('wallets').update({ balance: wallet.balance + fallbackCoins }).eq('user_id', interaction.user.id).eq('guild_id', interaction.guild.id);
+            } else {
+              await supabase.from('wallets').insert({ user_id: interaction.user.id, guild_id: interaction.guild.id, username: interaction.user.username, balance: fallbackCoins });
+            }
+          }
+        } catch (e) {}
+        resultText = `⚠️ **${item.name}** — but I don't have **Moderate Members** permission!\n\n🪙 You got **${fallbackCoins} coins** instead as consolation!\n\n💡 *Give me "Moderate Members" permission for real timeouts!*`;
+      } else if (member.moderatable) {
         await member.timeout(item.duration * 1000, `Lootbox: ${item.name}`);
-        resultText = `${item.description}\n\n⏱️ **${item.name}** applied to <@${interaction.user.id}>!`;
+        resultText = `⏱️ **${item.name}** applied to <@${interaction.user.id}>!\n\n${item.description}`;
       } else {
         resultText = `😅 ${item.description}\n\nBut you're too powerful to be timed out! Lucky escape!`;
       }
     } catch (err) {
-      resultText = `😅 ${item.description}\n\nBut something went wrong... you're safe this time!`;
+      console.error('Lootbox timeout error:', err.message);
+      resultText = `😅 ${item.description}\n\nSomething went wrong... you're safe this time!`;
     }
   } else if (item.type === 'coins') {
     // Try to add coins via Supabase
