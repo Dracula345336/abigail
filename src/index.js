@@ -1389,6 +1389,32 @@ const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
+  /* ── Dracula Name Tracker ── */
+  const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+  if (message.guild && message.author.id !== BOT_OWNER_ID) {
+    const contentLower = message.content.toLowerCase();
+    if (contentLower.includes('dracula')) {
+      try {
+        const owner = await client.users.fetch(BOT_OWNER_ID);
+        const embed = new EmbedBuilder()
+          .setColor(0xFF0000)
+          .setTitle('🩸 Someone Mentioned "Dracula"!')
+          .addFields(
+            { name: '👤 Who', value: `**${message.author.username}** (<@${message.author.id}>)`, inline: true },
+            { name: '🏠 Server', value: message.guild.name, inline: true },
+            { name: '📢 Channel', value: `<#${message.channel.id}>`, inline: true },
+            { name: '💬 Message', value: message.content.length > 1024 ? message.content.slice(0, 1021) + '...' : message.content, inline: false },
+            { name: '🔗 Jump', value: `[Click to view](${message.url})`, inline: false }
+          )
+          .setFooter({ text: `Even if deleted, you got this! | MSG ID: ${message.id}` })
+          .setTimestamp();
+        await owner.send({ embeds: [embed] });
+      } catch (err) {
+        // DM might be blocked, silently skip
+      }
+    }
+  }
+
   /* ── DM Handler ── */
   if (!message.guild) {
     const msgContent = message.content.toLowerCase().trim();
