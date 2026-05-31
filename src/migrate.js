@@ -141,6 +141,18 @@ CREATE TABLE IF NOT EXISTS mimic_protected (
 );
 
 ALTER TABLE mimic_protected DISABLE ROW LEVEL SECURITY;
+
+-- ✅ Lootbox Config table
+CREATE TABLE IF NOT EXISTS lootbox_config (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  guild_id TEXT NOT NULL UNIQUE,
+  guild_name TEXT DEFAULT '',
+  enabled BOOLEAN DEFAULT false,
+  channel_id TEXT DEFAULT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE lootbox_config DISABLE ROW LEVEL SECURITY;
 `;
 
 async function runMigrations() {
