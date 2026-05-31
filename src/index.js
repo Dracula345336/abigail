@@ -1690,7 +1690,7 @@ client.on('messageCreate', async (message) => {
         .setColor(0x00D4FF)
         .setAuthor({ name: '🌐 Translation', iconURL: message.author.displayAvatarURL({ dynamic: true }) })
         .addFields(
-          { name: `📝 Original (${result.from.language.iso})`, value: textToTranslate.length > 1024 ? textToTranslate.slice(0, 1021) + '...' : textToTranslate, inline: false },
+          { name: `📝 Original (${result.raw?.src || 'auto'})`, value: textToTranslate.length > 1024 ? textToTranslate.slice(0, 1021) + '...' : textToTranslate, inline: false },
           { name: '🇬🇧 English', value: result.text.length > 1024 ? result.text.slice(0, 1021) + '...' : result.text, inline: false }
         )
         .setFooter({ text: `Requested by ${message.author.username}` })
