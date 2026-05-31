@@ -3,10 +3,10 @@ const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js'
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('mimic-log')
-    .setDescription('📜 See mimic history (bot owner can view anyone)')
+    .setDescription('📜 See mimic history (mimic access users can view anyone)')
     .addUserOption(option =>
       option.setName('user')
-        .setDescription('View another user\'s log (bot owner only)')
+        .setDescription('View another user\'s log (requires mimic access)')
         .setRequired(false))
     .addIntegerOption(option =>
       option.setName('page')
@@ -15,20 +15,57 @@ module.exports = {
         .setMinValue(1)),
 
   async execute(interaction) {
+    const supabase = require('../db');
     const mimicLog = interaction.client.mimicLog;
     const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
     const isBotOwner = interaction.user.id === BOT_OWNER_ID;
+    const isServerOwner = interaction.guild.ownerId === interaction.user.id;
 
-    // Bot owner can look up anyone's log
-    const targetUser = isBotOwner ? interaction.options.getUser('user') : null;
+    /* ── Check if user has mimic access (can view others' logs) ── */
+    let hasMimicAccess = isBotOwner || isServerOwner;
+
+    // Check Supabase access list
+    if (!hasMimicAccess && supabase) {
+      try {
+        const { data } = await supabase
+          .from('mimic_access')
+          .select('user_id')
+          .eq('guild_id', interaction.guild.id)
+          .eq('user_id', interaction.user.id)
+          .maybeSingle();
+        hasMimicAccess = !!data;
+      } catch (err) {
+        console.error('Mimic access DB check failed:', err.message);
+      }
+    }
+
+    // Check in-memory access list
+    if (!hasMimicAccess && interaction.client.mimicAccess) {
+      const guildAccess = interaction.client.mimicAccess.get(interaction.guild.id);
+      hasMimicAccess = guildAccess && guildAccess.has(interaction.user.id);
+    }
+
+    /* ── Determine lookup target ── */
+    const requestedUser = interaction.options.getUser('user');
+
+    // Only users with mimic access can look up others
+    const targetUser = (hasMimicAccess && requestedUser) ? requestedUser : null;
     const lookupUserId = targetUser ? targetUser.id : interaction.user.id;
     const lookupName = targetUser ? targetUser.username : 'Your';
+
+    // If user without access tried to look up someone else, warn them
+    if (requestedUser && !hasMimicAccess) {
+      return interaction.reply({
+        content: '🚫 You need **mimic access** to view other people\'s logs!\nAsk the server owner or bot owner to grant access with `/mimic-access add`.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
 
     if (!mimicLog || mimicLog.size === 0) {
       const emptyEmbed = new EmbedBuilder()
         .setColor(0xFF69B4)
-        .setTitle(`📜 ${lookupName} Mimic History`)
-        .setDescription(isBotOwner && targetUser ? `${targetUser} hasn't used /mimic yet! 🎭` : 'You haven\'t used /mimic yet! 🎭')
+        .setTitle(`📜 ${lookupName}${lookupName === 'Your' ? '' : "'s"} Mimic History`)
+        .setDescription(targetUser ? `**${targetUser.username}** hasn't used /mimic yet! 🎭` : 'You haven\'t used /mimic yet! 🎭')
         .setFooter({ text: '💡 Use /mimic @user to get started' })
         .setTimestamp();
 
