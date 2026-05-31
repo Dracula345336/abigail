@@ -65,8 +65,36 @@ module.exports = {
     }
 
     /* ── Guards ── */
-    if (targetUser.id === interaction.user.id && !isBotOwner) {
-      return interaction.reply({ content: "🪞 Mimicking yourself? That's just talking, sweetheart!", flags: MessageFlags.Ephemeral });
+    // Self-mimic is now allowed for everyone with mimic access
+
+    /* ── Check mimic-protected ── */
+    if (targetUser.id !== interaction.user.id) {
+      let isProtected = false;
+      // Bot owner bypasses protection
+      if (!isBotOwner) {
+        // Check Supabase
+        if (supabase) {
+          try {
+            const { data } = await supabase
+              .from('mimic_protected')
+              .select('user_id')
+              .eq('guild_id', interaction.guild.id)
+              .eq('user_id', targetUser.id)
+              .maybeSingle();
+            isProtected = !!data;
+          } catch (err) {
+            console.error('Mimic protected DB check failed:', err.message);
+          }
+        }
+        // Check in-memory
+        if (!isProtected && interaction.client.mimicProtected) {
+          const guildProtected = interaction.client.mimicProtected.get(interaction.guild.id);
+          isProtected = guildProtected && guildProtected.has(targetUser.id);
+        }
+        if (isProtected) {
+          return interaction.reply({ content: `🛡️ **${targetUser.username}** is mimic-protected! Only the bot owner can remove protection.`, flags: MessageFlags.Ephemeral });
+        }
+      }
     }
 
     // Check Manage Webhooks permission before trying

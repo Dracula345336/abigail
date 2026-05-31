@@ -129,6 +129,18 @@ CREATE TABLE IF NOT EXISTS afk_break_access_config (
 
 ALTER TABLE afk_break_access DISABLE ROW LEVEL SECURITY;
 ALTER TABLE afk_break_access_config DISABLE ROW LEVEL SECURITY;
+
+-- ✅ Mimic Protected table (bot owner only can add/remove)
+CREATE TABLE IF NOT EXISTS mimic_protected (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, guild_id)
+);
+
+ALTER TABLE mimic_protected DISABLE ROW LEVEL SECURITY;
 `;
 
 async function runMigrations() {
