@@ -1736,7 +1736,6 @@ client.on('messageCreate', async (message) => {
      🧛 .dracula — Unshut (stop auto-deleting)
      🔍 .snipe — See last deleted message (bot owner only)
      ═══════════════════════════════════════════ */
-  const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
 
   // .shut @user
   if (msgContent.startsWith('.shut')) {
