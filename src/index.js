@@ -28,6 +28,7 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const translate = require('@vitalets/google-translate-api');
 
 /* ═══════════════════════════════════════════
    ✅  Environment Validation
@@ -1661,6 +1662,32 @@ client.on('messageCreate', async (message) => {
   }
 
   const msgContent = message.content.toLowerCase().trim();
+
+  /* ═══════════════════════════════════════════
+     🌐 Translation Command — !tr <text>
+     ═══════════════════════════════════════════ */
+  if (msgContent.startsWith('!tr')) {
+    const textToTranslate = message.content.slice(3).trim();
+    if (!textToTranslate) {
+      return message.reply('❌ Please provide text to translate! Usage: `!tr <text>`').catch(console.error);
+    }
+    try {
+      const result = await translate(textToTranslate, { to: 'en' });
+      const embed = new EmbedBuilder()
+        .setColor(0x00D4FF)
+        .setAuthor({ name: '🌐 Translation', iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+        .addFields(
+          { name: `📝 Original (${result.from.language.iso})`, value: textToTranslate.length > 1024 ? textToTranslate.slice(0, 1021) + '...' : textToTranslate, inline: false },
+          { name: '🇬🇧 English', value: result.text.length > 1024 ? result.text.slice(0, 1021) + '...' : result.text, inline: false }
+        )
+        .setFooter({ text: `Requested by ${message.author.username}` })
+        .setTimestamp();
+      return message.reply({ embeds: [embed] }).catch(console.error);
+    } catch (err) {
+      console.error('Translation error:', err);
+      return message.reply('❌ Translation failed! Try again later.').catch(console.error);
+    }
+  }
 
   /* ═══════════════════════════════════════════
      🐺 Werewolf Game Commands — Wolfia Style

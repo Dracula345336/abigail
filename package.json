@@ -1,7 +1,7 @@
 {
   "name": "sweetheart-bot",
-  "version": "2.3.0",
-  "description": "A Discord bot with AFK, Mimic, Hand Cricket, and Werewolf systems",
+  "version": "2.4.0",
+  "description": "A Discord bot with AFK, Mimic, Hand Cricket, Translation and more",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/migrate.js && node src/index.js",
