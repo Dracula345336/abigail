@@ -627,11 +627,14 @@ client.once(Events.ClientReady, async () => {
       const { data: lootboxConfigs } = await supabase
         .from('lootbox_config')
         .select('*');
-      if (lootboxConfigs) {
+      if (lootboxConfigs && lootboxConfigs.length > 0) {
         for (const cfg of lootboxConfigs) {
           client.lootboxConfig.set(cfg.guild_id, { enabled: cfg.enabled, channelId: cfg.channel_id });
+          console.log(`🎁 Loaded config: guild=${cfg.guild_id} enabled=${cfg.enabled} channel=${cfg.channel_id}`);
         }
         console.log(`🎁 Loaded lootbox configs for ${lootboxConfigs.length} server(s)`);
+      } else {
+        console.log('🎁 No lootbox configs found in DB');
       }
     } catch (err) {
       console.error('Lootbox config load error:', err.message);
@@ -640,15 +643,17 @@ client.once(Events.ClientReady, async () => {
 
   /* ── Lootbox Auto-Spawn Timer (every 5 min) ── */
   setInterval(async () => {
-    for (const [guildId, config] of client.lootboxConfig) {
+    const entries = [...client.lootboxConfig.entries()];
+    for (const [guildId, config] of entries) {
       if (!config.enabled || !config.channelId) continue;
       const guild = client.guilds.cache.get(guildId);
       if (!guild) continue;
+      console.log(`🎁 Spawning lootbox in guild=${guild.name} channel=${config.channelId}`);
       await spawnLootbox(guild, config.channelId);
     }
   }, 5 * 60 * 1000);
 
-  console.log('🎁 Lootbox auto-spawn active (every 5 min)');
+  console.log(`🎁 Lootbox auto-spawn active (every 5 min) | Configs loaded: ${client.lootboxConfig.size}`);
 });
 
 /* ═══════════════════════════════════════════

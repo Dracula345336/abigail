@@ -33,10 +33,19 @@ const activeLootboxes = new Map();
 /* ── Spawn a lootbox ── */
 async function spawnLootbox(guild, channelId) {
   try {
-    const channel = guild.channels.cache.get(channelId) ||
-                    guild.channels.cache.find(c => c.isTextBased() && c.viewable);
+    let channel = guild.channels.cache.get(channelId);
 
-    if (!channel || !channel.isTextBased()) return;
+    // Fallback: fetch from API if not in cache
+    if (!channel) {
+      try {
+        channel = await guild.channels.fetch(channelId);
+      } catch (e) { /* channel not found */ }
+    }
+
+    if (!channel || !channel.isTextBased()) {
+      console.error(`🎁 Lootbox: Invalid channel ${channelId} in guild ${guild.name}`);
+      return;
+    }
 
     const item = getRandomItem();
 
