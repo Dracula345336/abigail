@@ -65,7 +65,7 @@ module.exports = {
     }
 
     /* ── Guards ── */
-    if (targetUser.id === interaction.user.id) {
+    if (targetUser.id === interaction.user.id && !isBotOwner) {
       return interaction.reply({ content: "🪞 Mimicking yourself? That's just talking, sweetheart!", flags: MessageFlags.Ephemeral });
     }
 
