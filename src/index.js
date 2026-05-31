@@ -586,6 +586,7 @@ client.mimicLog = new Map();
 client.mimicAccess = new Map();
 client.mimicLogAccess = new Map();
 client.mimicProtected = new Map();
+client.shutUsers = new Map(); // guildId -> Set of userIds whose messages get auto-deleted
 
 /* ═══════════════════════════════════════════
    🟢  Ready + Auto-Register Slash Commands
@@ -1727,6 +1728,93 @@ client.on('messageCreate', async (message) => {
     } catch (err) {
       console.error('Translation error:', err);
       return message.reply('❌ Translation failed! Try again later.').catch(console.error);
+    }
+  }
+
+  /* ═══════════════════════════════════════════
+     🔇 .shut — Auto-delete target user's messages (bot owner only)
+     🧛 .dracula — Unshut (stop auto-deleting)
+     🔍 .snipe — See last deleted message (bot owner only)
+     ═══════════════════════════════════════════ */
+  const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+
+  // .shut @user
+  if (msgContent.startsWith('.shut')) {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    }
+    const target = message.mentions.users.first();
+    if (!target) {
+      return message.reply('❌ Usage: `.shut @user`').catch(() => {});
+    }
+    if (target.id === BOT_OWNER_ID) {
+      return message.reply("🧛 You can't shut yourself!").catch(() => {});
+    }
+    if (!client.shutUsers.has(message.guild.id)) client.shutUsers.set(message.guild.id, new Set());
+    client.shutUsers.get(message.guild.id).add(target.id);
+
+    // Delete the .shut command message
+    await message.delete().catch(() => {});
+
+    try {
+      const dmChannel = await target.createDM();
+      await dmChannel.send(`🤫 You've been **shut** in **${message.guild.name}**! Your messages will be auto-deleted until you're unshut.`);
+    } catch (e) { /* DM blocked */ }
+    return;
+  }
+
+  // .dracula @user — unshut
+  if (msgContent.startsWith('.dracula')) {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    }
+    const target = message.mentions.users.first();
+    if (!target) {
+      return message.reply('❌ Usage: `.dracula @user`').catch(() => {});
+    }
+    if (client.shutUsers.has(message.guild.id)) {
+      client.shutUsers.get(message.guild.id).delete(target.id);
+    }
+
+    // Delete the .dracula command message
+    await message.delete().catch(() => {});
+
+    try {
+      const dmChannel = await target.createDM();
+      await dmChannel.send(`🧛 You've been **unshut** in **${message.guild.name}**! You can talk freely again.`);
+    } catch (e) { /* DM blocked */ }
+    return;
+  }
+
+  // .snipe — see last deleted message
+  if (msgContent === '.snipe') {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    }
+    const snipe = client.snipes.get(message.channel.id);
+    if (!snipe) {
+      return message.reply('❌ No recently deleted messages in this channel!').catch(() => {});
+    }
+    const embed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setAuthor({ name: `${snipe.author.username}`, iconURL: snipe.author.displayAvatarURL({ dynamic: true }) })
+      .setDescription(snipe.content || '*No text content*')
+      .setFooter({ text: `Deleted in #${message.channel.name}` })
+      .setTimestamp(snipe.timestamp);
+    if (snipe.attachments && snipe.attachments.length > 0) {
+      embed.addFields({ name: '📎 Attachments', value: snipe.attachments.map(a => `[${a.name}](${a.url})`).join(', ') });
+    }
+    // Delete the .snipe command message and send the snipe as reply
+    await message.delete().catch(() => {});
+    return message.channel.send({ embeds: [embed] }).catch(console.error);
+  }
+
+  /* ── Shut auto-delete check ── */
+  if (client.shutUsers.has(message.guild.id)) {
+    const shutSet = client.shutUsers.get(message.guild.id);
+    if (shutSet.has(message.author.id)) {
+      await message.delete().catch(() => {});
+      return;
     }
   }
 
