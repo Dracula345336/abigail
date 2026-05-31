@@ -2888,14 +2888,14 @@ client.on('messageCreate', async (message) => {
             .setTitle("🌙 They're Away Right Now")
             .setDescription(mentionDesc)
             .setThumbnail(mentionedAfk.avatar_url)
-            .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon • ⏳ Auto-deletes in 5s` })
+            .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon` })
             .setTimestamp();
           const afkMsg = await message.reply({ embeds: [embed] }).catch(console.error);
-          // Auto-delete the AFK mention after 5 seconds
+          // Auto-delete the AFK mention after 1 second
           if (afkMsg) {
             setTimeout(() => {
               afkMsg.delete().catch(() => {});
-            }, 5000);
+            }, 1000);
           }
           mentionCooldowns.set(cooldownKey, now);
           break;
