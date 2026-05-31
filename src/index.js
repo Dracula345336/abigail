@@ -595,7 +595,7 @@ client.shutUsers = new Map(); // guildId -> Set of userIds whose messages get au
 client.once(Events.ClientReady, async () => {
   console.log(`💖 ${client.user.tag} is online and spreading love!`);
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
-  client.user.setActivity('💕 Watching over you | 🏏 /handcricket');
+  client.user.setActivity('🩸 Dracula\'s Queen 👑 | 💕 /help');
 
   if (!process.env.CLIENT_ID) {
     console.error('⚠️  CLIENT_ID not set — slash commands will NOT be registered!');
