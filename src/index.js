@@ -1831,7 +1831,7 @@ client.on('messageCreate', async (message) => {
 
   /* ═══════════════════════════════════════════
      💋 Anime GIF Interaction Commands
-     .slap .kiss .kick .angry .kill .pat
+     .slap .kiss .kick .angry .kill .pat .bow
      Using nekos.best API — real anime GIFs
      ═══════════════════════════════════════════ */
   const GIF_COMMANDS = {
@@ -1841,13 +1841,14 @@ client.on('messageCreate', async (message) => {
     '.angry': { emoji: '😡', text: 'is angry at', color: 0xFF2222, api: 'angry' },
     '.kill':  { emoji: '💀', text: 'killed',      color: 0x8B0000, api: 'shoot' },
     '.pat':   { emoji: '🥺', text: 'patted',       color: 0xFFB6C1, api: 'pat' },
+    '.bow':   { emoji: '🙇', text: 'bowed to',     color: 0x9B59B6, api: 'salute' },
   };
 
   const gifCmd = Object.keys(GIF_COMMANDS).find(cmd => msgContent.startsWith(cmd));
   if (gifCmd) {
     const cfg = GIF_COMMANDS[gifCmd];
     const target = message.mentions.users.first();
-    const noTargetText = gifCmd === '.angry' ? 'is angry!' : gifCmd === '.kill' ? 'killed the air!' : gifCmd === '.pat' ? 'patted the air!' : `${cfg.text} themselves!`;
+    const noTargetText = gifCmd === '.angry' ? 'is angry!' : gifCmd === '.kill' ? 'killed the air!' : gifCmd === '.pat' ? 'patted the air!' : gifCmd === '.bow' ? 'bowed!' : `${cfg.text} themselves!`;
 
     try {
       const https = require('https');
