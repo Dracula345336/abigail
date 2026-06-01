@@ -1737,14 +1737,20 @@ client.on('messageCreate', async (message) => {
      🔍 .snipe — See last deleted message (bot owner only)
      ═══════════════════════════════════════════ */
 
-  // .shut @user
+  // .shut @user or .shut <userID>
   if (msgContent.startsWith('.shut')) {
     if (message.author.id !== BOT_OWNER_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
-    const target = message.mentions.users.first();
+    let target = message.mentions.users.first();
     if (!target) {
-      return message.reply('❌ Usage: `.shut @user`').catch(() => {});
+      const userId = message.content.trim().split(/\s+/)[1];
+      if (userId && /^\d{17,20}$/.test(userId)) {
+        target = await client.users.fetch(userId).catch(() => null);
+      }
+    }
+    if (!target) {
+      return message.reply('❌ Usage: `.shut @user` or `.shut <user_id>`').catch(() => {});
     }
     if (target.id === BOT_OWNER_ID) {
       return message.reply("🧛 You can't shut yourself!").catch(() => {});
@@ -1762,14 +1768,20 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // .dracula @user — unshut
+  // .dracula @user or .dracula <userID> — unshut
   if (msgContent.startsWith('.dracula')) {
     if (message.author.id !== BOT_OWNER_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
-    const target = message.mentions.users.first();
+    let target = message.mentions.users.first();
     if (!target) {
-      return message.reply('❌ Usage: `.dracula @user`').catch(() => {});
+      const userId = message.content.trim().split(/\s+/)[1];
+      if (userId && /^\d{17,20}$/.test(userId)) {
+        target = await client.users.fetch(userId).catch(() => null);
+      }
+    }
+    if (!target) {
+      return message.reply('❌ Usage: `.dracula @user` or `.dracula <user_id>`').catch(() => {});
     }
     if (client.shutUsers.has(message.guild.id)) {
       client.shutUsers.get(message.guild.id).delete(target.id);
