@@ -1820,13 +1820,14 @@ client.on('messageCreate', async (message) => {
   /* ═══════════════════════════════════════════
      💋 Anime GIF Interaction Commands
      .slap .kiss .kick .angry .kill
+     Using nekos.best API — real anime GIFs
      ═══════════════════════════════════════════ */
   const GIF_COMMANDS = {
-    '.slap':  { emoji: '👋', text: 'slapped',   color: 0xFF4444, api: 'slap' },
-    '.kiss':  { emoji: '💋', text: 'kissed',     color: 0xFF69B4, api: 'kiss' },
-    '.kick':  { emoji: '👢', text: 'kicked',     color: 0xFF8800, api: 'cuddle' },
-    '.angry': { emoji: '😡', text: 'is angry at', color: 0xFF2222, api: 'smug' },
-    '.kill':  { emoji: '💀', text: 'killed',     color: 0x8B0000, api: 'feed' },
+    '.slap':  { emoji: '👋', text: 'slapped',    color: 0xFF4444, api: 'slap' },
+    '.kiss':  { emoji: '💋', text: 'kissed',      color: 0xFF69B4, api: 'kiss' },
+    '.kick':  { emoji: '👢', text: 'kicked',      color: 0xFF8800, api: 'kick' },
+    '.angry': { emoji: '😡', text: 'is angry at', color: 0xFF2222, api: 'angry' },
+    '.kill':  { emoji: '💀', text: 'killed',      color: 0x8B0000, api: 'shoot' },
   };
 
   const gifCmd = Object.keys(GIF_COMMANDS).find(cmd => msgContent.startsWith(cmd));
@@ -1839,11 +1840,14 @@ client.on('messageCreate', async (message) => {
       const https = require('https');
       const gifUrl = await new Promise((resolve, reject) => {
         const apiEp = cfg.api;
-        https.get(`https://nekos.life/api/v2/img/${apiEp}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
+        https.get(`https://nekos.best/api/v2/${apiEp}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
           let data = '';
           res.on('data', chunk => data += chunk);
           res.on('end', () => {
-            try { resolve(JSON.parse(data).url); } catch (e) { reject(e); }
+            try {
+              const parsed = JSON.parse(data);
+              resolve(parsed.results?.[0]?.url || parsed.url);
+            } catch (e) { reject(e); }
           });
         }).on('error', reject);
       });
