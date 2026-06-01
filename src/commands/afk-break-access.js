@@ -3,35 +3,44 @@ const { SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js'
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('afk-break-access')
-    .setDescription('🔐 Manage who can break YOUR AFK with /afk-break')
+    .setDescription('🔐 Manage who can break AFK — bot owner only')
     .addSubcommand(sub =>
       sub.setName('add')
-        .setDescription('Allow a user to break your AFK')
+        .setDescription('Allow a user to break protected AFKs')
         .addUserOption(opt =>
           opt.setName('user')
             .setDescription('The user you want to allow')
             .setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('remove')
-        .setDescription('Remove a user from your AFK break access list')
+        .setDescription('Remove a user from AFK break access list')
         .addUserOption(opt =>
           opt.setName('user')
             .setDescription('The user to remove from access')
             .setRequired(true)))
     .addSubcommand(sub =>
       sub.setName('list')
-        .setDescription('See who can break your AFK'))
+        .setDescription('See who has AFK break access'))
     .addSubcommand(sub =>
       sub.setName('lock')
-        .setDescription('🔒 Lock AFK break — only allowed users can break (not everyone)'))
+        .setDescription('🔒 Lock AFK break globally — only allowed users can break'))
     .addSubcommand(sub =>
       sub.setName('unlock')
-        .setDescription('🔓 Unlock AFK break — anyone can break your AFK')),
+        .setDescription('🔓 Unlock AFK break — anyone can break AFK')),
 
   async execute(interaction) {
     const supabase = require('../db');
+    const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+    const isBotOwner = interaction.user.id === BOT_OWNER_ID;
+
+    if (!isBotOwner) {
+      return interaction.reply({
+        content: '🚫 Only the **bot owner** can manage AFK break access!',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     const subcommand = interaction.options.getSubcommand();
-    const userId = interaction.user.id;
     const guildId = interaction.guild.id;
 
     /* ── LOCK — only allowed users can break ── */
@@ -41,10 +50,9 @@ module.exports = {
           const { error } = await supabase
             .from('afk_break_access_config')
             .upsert({
-              user_id: userId,
               guild_id: guildId,
               locked: true,
-            }, { onConflict: 'user_id,guild_id' });
+            }, { onConflict: 'guild_id' });
 
           if (error) console.error('AFK break lock error:', error.message);
         } catch (err) {
@@ -54,19 +62,18 @@ module.exports = {
 
       // In-memory cache
       if (!interaction.client.afkBreakAccessConfig) interaction.client.afkBreakAccessConfig = new Map();
-      const key = `${guildId}-${userId}`;
-      interaction.client.afkBreakAccessConfig.set(key, { locked: true });
+      interaction.client.afkBreakAccessConfig.set(guildId, { locked: true });
 
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('🔒 AFK Break Locked!')
         .setDescription(
-          'Your AFK is now **locked**!\n\n━━━━━━━━━━━━━━━━━━━\n' +
-          '┣ 🔒 Only users you allow can break your AFK\n' +
-          '┣ 👑 Server Owner can always break anyone\'s AFK\n' +
+          'AFK break is now **locked** for this server!\n\n━━━━━━━━━━━━━━━━━━━\n' +
+          '┣ 🔒 Only users you allow can break AFK\n' +
+          '┣ 👑 Bot Owner always has access\n' +
           '┗ 📨 Use `/afk-break-access add @user` to allow users'
         )
-        .setFooter({ text: '💕 Sweetheart Bot — AFK Protection' })
+        .setFooter({ text: '💕 Abigail — AFK Protection' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -79,10 +86,9 @@ module.exports = {
           const { error } = await supabase
             .from('afk_break_access_config')
             .upsert({
-              user_id: userId,
               guild_id: guildId,
               locked: false,
-            }, { onConflict: 'user_id,guild_id' });
+            }, { onConflict: 'guild_id' });
 
           if (error) console.error('AFK break unlock error:', error.message);
         } catch (err) {
@@ -92,19 +98,18 @@ module.exports = {
 
       // In-memory cache
       if (!interaction.client.afkBreakAccessConfig) interaction.client.afkBreakAccessConfig = new Map();
-      const key = `${guildId}-${userId}`;
-      interaction.client.afkBreakAccessConfig.set(key, { locked: false });
+      interaction.client.afkBreakAccessConfig.set(guildId, { locked: false });
 
       const embed = new EmbedBuilder()
         .setColor(0xFF69B4)
         .setTitle('🔓 AFK Break Unlocked!')
         .setDescription(
-          'Your AFK is now **unlocked**!\n\n━━━━━━━━━━━━━━━━━━━\n' +
-          '┣ 🔓 Anyone can break your AFK now\n' +
-          '┣ 👑 Server Owner always has access\n' +
+          'AFK break is now **unlocked** for this server!\n\n━━━━━━━━━━━━━━━━━━━\n' +
+          '┣ 🔓 Anyone can break AFK now\n' +
+          '┣ 👑 Bot Owner always has access\n' +
           '┗ 🔒 Use `/afk-break-access lock` to restrict again'
         )
-        .setFooter({ text: '💕 Sweetheart Bot — AFK Protection' })
+        .setFooter({ text: '💕 Abigail — AFK Protection' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -115,26 +120,25 @@ module.exports = {
       const targetUser = interaction.options.getUser('user');
 
       if (targetUser.bot) {
-        return interaction.reply({ content: '🚫 Cannot add bots to your AFK break access!', flags: MessageFlags.Ephemeral });
+        return interaction.reply({ content: '🚫 Cannot add bots to AFK break access!', flags: MessageFlags.Ephemeral });
       }
 
-      if (targetUser.id === userId) {
-        return interaction.reply({ content: '🤔 You don\'t need to add yourself — you control your own AFK!', flags: MessageFlags.Ephemeral });
+      if (targetUser.id === BOT_OWNER_ID) {
+        return interaction.reply({ content: '👑 Bot owner already has access to break all AFKs!', flags: MessageFlags.Ephemeral });
       }
 
       if (supabase) {
         try {
           const { data: existing } = await supabase
             .from('afk_break_access')
-            .select('user_id')
+            .select('id')
             .eq('guild_id', guildId)
-            .eq('owner_id', userId)
             .eq('allowed_user_id', targetUser.id)
             .maybeSingle();
 
           if (existing) {
             return interaction.reply({
-              content: `✅ **${targetUser.username}** already has access to break your AFK!`,
+              content: `✅ **${targetUser.username}** already has AFK break access!`,
               flags: MessageFlags.Ephemeral,
             });
           }
@@ -143,7 +147,7 @@ module.exports = {
             .from('afk_break_access')
             .insert({
               guild_id: guildId,
-              owner_id: userId,
+              owner_id: interaction.user.id,
               allowed_user_id: targetUser.id,
               allowed_username: targetUser.username,
             });
@@ -158,7 +162,7 @@ module.exports = {
 
       // In-memory cache
       if (!interaction.client.afkBreakAccess) interaction.client.afkBreakAccess = new Map();
-      const key = `${guildId}-${userId}`;
+      const key = guildId;
       const allowed = interaction.client.afkBreakAccess.get(key) || new Set();
       allowed.add(targetUser.id);
       interaction.client.afkBreakAccess.set(key, allowed);
@@ -167,12 +171,12 @@ module.exports = {
         .setColor(0xFF69B4)
         .setTitle('🔐 AFK Break Access Granted!')
         .setDescription(
-          `**${targetUser.username}** can now break your AFK!\n\n━━━━━━━━━━━━━━━━━━━\n` +
-          `┣ 🔓 They can use \`/afk-break\` on you\n` +
-          `┣ 👑 Server Owner always has access\n` +
+          `**${targetUser.username}** can now break protected AFKs!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+          `┣ 🔓 They can use \`/afk-break\` on anyone\n` +
+          `┣ 👑 Bot Owner always has access\n` +
           `┗ 📨 Use \`/afk-break-access remove @${targetUser.username}\` to revoke`
         )
-        .setFooter({ text: '💕 Sweetheart Bot — AFK Protection' })
+        .setFooter({ text: '💕 Abigail — AFK Protection' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -188,7 +192,6 @@ module.exports = {
             .from('afk_break_access')
             .delete()
             .eq('guild_id', guildId)
-            .eq('owner_id', userId)
             .eq('allowed_user_id', targetUser.id);
         } catch (err) {
           console.error('AFK break access DB error (remove):', err.message);
@@ -197,7 +200,7 @@ module.exports = {
 
       // In-memory cache
       if (!interaction.client.afkBreakAccess) interaction.client.afkBreakAccess = new Map();
-      const key = `${guildId}-${userId}`;
+      const key = guildId;
       const allowed = interaction.client.afkBreakAccess.get(key);
       if (allowed) allowed.delete(targetUser.id);
 
@@ -205,12 +208,12 @@ module.exports = {
         .setColor(0xFF69B4)
         .setTitle('🔐 AFK Break Access Revoked!')
         .setDescription(
-          `**${targetUser.username}** can no longer break your AFK!\n\n━━━━━━━━━━━━━━━━━━━\n` +
-          `┣ 🔒 They won't be able to use \`/afk-break\` on you\n` +
-          `┣ 👑 Server Owner always has access\n` +
+          `**${targetUser.username}** can no longer break protected AFKs!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+          `┣ 🔒 They won't be able to use \`/afk-break\` on protected users\n` +
+          `┣ 👑 Bot Owner always has access\n` +
           `┗ 📨 Use \`/afk-break-access add @${targetUser.username}\` to re-grant`
         )
-        .setFooter({ text: '💕 Sweetheart Bot — AFK Protection' })
+        .setFooter({ text: '💕 Abigail — AFK Protection' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -225,8 +228,7 @@ module.exports = {
           const { data } = await supabase
             .from('afk_break_access')
             .select('*')
-            .eq('guild_id', guildId)
-            .eq('owner_id', userId);
+            .eq('guild_id', guildId);
           accessList = data || [];
         } catch (err) {
           console.error('AFK break access DB error (list):', err.message);
@@ -235,7 +237,7 @@ module.exports = {
 
       // Also include in-memory
       if (!interaction.client.afkBreakAccess) interaction.client.afkBreakAccess = new Map();
-      const key = `${guildId}-${userId}`;
+      const key = guildId;
       const memAccess = interaction.client.afkBreakAccess.get(key);
       if (memAccess) {
         for (const uid of memAccess) {
@@ -248,8 +250,7 @@ module.exports = {
       // Check lock status
       let isLocked = false;
       if (!interaction.client.afkBreakAccessConfig) interaction.client.afkBreakAccessConfig = new Map();
-      const configKey = `${guildId}-${userId}`;
-      const config = interaction.client.afkBreakAccessConfig.get(configKey);
+      const config = interaction.client.afkBreakAccessConfig.get(guildId);
       if (config) isLocked = config.locked;
 
       // Try DB for lock status
@@ -259,7 +260,6 @@ module.exports = {
             .from('afk_break_access_config')
             .select('locked')
             .eq('guild_id', guildId)
-            .eq('user_id', userId)
             .maybeSingle();
           if (cfgData) isLocked = cfgData.locked;
         } catch (err) {}
@@ -273,14 +273,14 @@ module.exports = {
             .setColor(0xFF69B4)
             .setTitle('🔐 AFK Break Access List')
             .setDescription(
-              `Your AFK break access settings:\n\n━━━━━━━━━━━━━━━━━━━\n` +
+              `AFK break access settings for this server:\n\n━━━━━━━━━━━━━━━━━━━\n` +
               `┣ ${lockStatus}\n` +
-              `┣ 👑 Server Owner always has access\n` +
-              `┗ 📋 No users in your access list\n\n` +
+              `┣ 👑 Bot Owner always has access\n` +
+              `┗ 📋 No users in the access list\n\n` +
               `Use \`/afk-break-access add @user\` to allow users!\n` +
               `Use \`/afk-break-access lock\` to restrict!`
             )
-            .setFooter({ text: '💕 Sweetheart Bot — AFK Protection' })
+            .setFooter({ text: '💕 Abigail — AFK Protection' })
             .setTimestamp()],
           flags: MessageFlags.Ephemeral,
         });
@@ -294,12 +294,12 @@ module.exports = {
         .setColor(0xFF69B4)
         .setTitle('🔐 AFK Break Access List')
         .setDescription(
-          `Your AFK break access settings:\n\n━━━━━━━━━━━━━━━━━━━\n` +
+          `AFK break access settings for this server:\n\n━━━━━━━━━━━━━━━━━━━\n` +
           `┣ ${lockStatus}\n` +
-          `┣ 👑 Server Owner always has access\n` +
+          `┣ 👑 Bot Owner always has access\n` +
           `┗ 📋 **${accessList.length}** user(s) with access:\n\n${userList}`
         )
-        .setFooter({ text: '💕 Sweetheart Bot — AFK Protection' })
+        .setFooter({ text: '💕 Abigail — AFK Protection' })
         .setTimestamp();
 
       return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });

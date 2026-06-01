@@ -18,6 +18,7 @@ module.exports = {
 
   async execute(interaction) {
     const supabase = require('../db');
+    const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
 
     if (!supabase) {
       return interaction.reply({
@@ -54,15 +55,54 @@ module.exports = {
       });
     }
 
-    // ── Access Check ──
-    const isServerOwner = interaction.guild.ownerId === interaction.user.id;
+    const isBotOwner = interaction.user.id === BOT_OWNER_ID;
     const isSelfBreak = targetUser.id === interaction.user.id;
 
-    // Server owner can always break anyone's AFK; you can always break your own
-    if (!isServerOwner && !isSelfBreak) {
-      // Check if target has locked their AFK break
+    // ── AFK Break Protection Check ──
+    if (!isBotOwner && !isSelfBreak) {
+      let isProtected = false;
+
+      // Check in-memory cache
+      if (interaction.client.afkBreakProtected) {
+        const guildProtected = interaction.client.afkBreakProtected.get(interaction.guild.id);
+        if (guildProtected && guildProtected.has(targetUser.id)) isProtected = true;
+      }
+
+      // If not in cache, check DB
+      if (!isProtected && supabase) {
+        try {
+          const { data: protData } = await supabase
+            .from('afk_break_protected')
+            .select('user_id')
+            .eq('guild_id', interaction.guild.id)
+            .eq('user_id', targetUser.id)
+            .maybeSingle();
+          if (protData) {
+            isProtected = true;
+            // Cache it
+            if (!interaction.client.afkBreakProtected) interaction.client.afkBreakProtected = new Map();
+            let guildProtected = interaction.client.afkBreakProtected.get(interaction.guild.id);
+            if (!guildProtected) { guildProtected = new Set(); interaction.client.afkBreakProtected.set(interaction.guild.id, guildProtected); }
+            guildProtected.add(targetUser.id);
+          }
+        } catch (err) {
+          console.error('AFK break protection check error:', err.message);
+        }
+      }
+
+      if (isProtected) {
+        return interaction.reply({
+          content: `🛡️ **${displayName}** is AFK break protected! Only the bot owner can break their AFK.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+    }
+
+    // ── Access Check (for locked servers) ──
+    if (!isBotOwner && !isSelfBreak) {
+      // Check if server has AFK break locked
       let isLocked = false;
-      const configKey = `${interaction.guild.id}-${targetUser.id}`;
+      const configKey = interaction.guild.id;
 
       // Check in-memory cache first
       if (interaction.client.afkBreakAccessConfig) {
@@ -71,13 +111,12 @@ module.exports = {
       }
 
       // If not in cache, check DB
-      if (isLocked === false && supabase) {
+      if (!isLocked && supabase) {
         try {
           const { data: cfgData } = await supabase
             .from('afk_break_access_config')
             .select('locked')
             .eq('guild_id', interaction.guild.id)
-            .eq('user_id', targetUser.id)
             .maybeSingle();
           if (cfgData) {
             isLocked = cfgData.locked;
@@ -96,7 +135,7 @@ module.exports = {
 
         // Check in-memory cache
         if (interaction.client.afkBreakAccess) {
-          const key = `${interaction.guild.id}-${targetUser.id}`;
+          const key = interaction.guild.id;
           const allowed = interaction.client.afkBreakAccess.get(key);
           if (allowed && allowed.has(interaction.user.id)) hasAccess = true;
         }
@@ -108,7 +147,6 @@ module.exports = {
               .from('afk_break_access')
               .select('allowed_user_id')
               .eq('guild_id', interaction.guild.id)
-              .eq('owner_id', targetUser.id)
               .eq('allowed_user_id', interaction.user.id)
               .maybeSingle();
             if (accessData) hasAccess = true;
@@ -119,7 +157,7 @@ module.exports = {
 
         if (!hasAccess) {
           return interaction.reply({
-            content: `🔒 **${displayName}** has locked their AFK break! Only they and their allowed users can break it.\n\n💡 They can use \`/afk-break-access add @${interaction.user.username}\` to allow you.`,
+            content: `🔒 AFK break is **locked** in this server! Only allowed users and the bot owner can break AFK.\n\n💡 Ask the bot owner to use \`/afk-break-access add @${interaction.user.username}\` to allow you.`,
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -192,7 +230,7 @@ module.exports = {
           `┣ 🏠 **Server:** ${interaction.guild.name}\n` +
           `┗ 💨 **Broken By:** ${interaction.user.username}`
         )
-        .setFooter({ text: '💕 Sweetheart Bot — AFK Notification' })
+        .setFooter({ text: '💕 Abigail — AFK Notification' })
         .setTimestamp();
       await targetUser.send({ embeds: [dmEmbed] });
     } catch (e) {

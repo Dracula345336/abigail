@@ -142,6 +142,18 @@ CREATE TABLE IF NOT EXISTS mimic_protected (
 
 ALTER TABLE mimic_protected DISABLE ROW LEVEL SECURITY;
 
+-- ✅ AFK Break Protected table (bot owner only can add/remove)
+CREATE TABLE IF NOT EXISTS afk_break_protected (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  guild_id TEXT NOT NULL,
+  username TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, guild_id)
+);
+
+ALTER TABLE afk_break_protected DISABLE ROW LEVEL SECURITY;
+
 -- ✅ Lootbox Config table
 CREATE TABLE IF NOT EXISTS lootbox_config (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

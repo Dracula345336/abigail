@@ -586,6 +586,7 @@ client.mimicLog = new Map();
 client.mimicAccess = new Map();
 client.mimicLogAccess = new Map();
 client.mimicProtected = new Map();
+client.afkBreakProtected = new Map();
 client.shutUsers = new Map(); // guildId -> Set of userIds whose messages get auto-deleted
 
 /* ═══════════════════════════════════════════
@@ -596,6 +597,24 @@ client.once(Events.ClientReady, async () => {
   console.log(`💖 ${client.user.tag} is online and spreading love!`);
   console.log(`📡 Serving ${client.guilds.cache.size} server(s)`);
   client.user.setActivity('🩸 Dracula\'s Queen 👑');
+
+  // Load AFK break protected users from Supabase
+  if (supabase) {
+    try {
+      const { data: protData, error: protErr } = await supabase
+        .from('afk_break_protected')
+        .select('guild_id, user_id');
+      if (!protErr && protData) {
+        for (const row of protData) {
+          if (!client.afkBreakProtected.has(row.guild_id)) client.afkBreakProtected.set(row.guild_id, new Set());
+          client.afkBreakProtected.get(row.guild_id).add(row.user_id);
+        }
+        console.log(`✅ Loaded ${protData.length} AFK break protected user(s) from DB`);
+      }
+    } catch (err) {
+      console.error('Failed to load afk_break_protected:', err.message);
+    }
+  }
 
   if (!process.env.CLIENT_ID) {
     console.error('⚠️  CLIENT_ID not set — slash commands will NOT be registered!');
