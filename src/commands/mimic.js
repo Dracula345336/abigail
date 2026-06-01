@@ -140,6 +140,52 @@ module.exports = {
       if (userLog.length > 100) userLog.pop();
       interaction.client.mimicLog.set(logKey, userLog);
 
+      /* ── Send log to mimic-log channel if set ── */
+      let logChannelId = null;
+      if (interaction.client.mimicLogChannel) {
+        logChannelId = interaction.client.mimicLogChannel.get(interaction.guild.id);
+      }
+      if (!logChannelId && supabase) {
+        try {
+          const { data } = await supabase
+            .from('mimic_log_channel')
+            .select('channel_id')
+            .eq('guild_id', interaction.guild.id)
+            .maybeSingle();
+          if (data) {
+            logChannelId = data.channel_id;
+            if (!interaction.client.mimicLogChannel) interaction.client.mimicLogChannel = new Map();
+            interaction.client.mimicLogChannel.set(interaction.guild.id, logChannelId);
+          }
+        } catch (err) {
+          console.error('Mimic log channel fetch error:', err.message);
+        }
+      }
+
+      if (logChannelId) {
+        try {
+          const logCh = await interaction.client.channels.fetch(logChannelId);
+          if (logCh) {
+            const logEmbed = new EmbedBuilder()
+              .setColor(0x2B2D31)
+              .setAuthor({ name: `🎭 ${interaction.user.username} used /mimic`, iconURL: interaction.user.displayAvatarURL({ dynamic: true, size: 128 }) })
+              .setDescription(
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 🎭 **Mimicked:** ${targetName} (<@${targetUser.id}>)\n` +
+                `┣ 👤 **By:** ${interaction.user.username} (<@${interaction.user.id}>)\n` +
+                `┣ 📢 **Channel:** <#${interaction.channel.id}>\n` +
+                `┣ 💬 **Message:**\n> ${msgContent.length > 300 ? msgContent.slice(0, 300) + '...' : msgContent}\n` +
+                `┗ ⏰ **Time:** <t:${Math.floor(Date.now() / 1000)}:R>`
+              )
+              .setFooter({ text: `User ID: ${interaction.user.id} | Target ID: ${targetUser.id}` })
+              .setTimestamp();
+            await logCh.send({ embeds: [logEmbed] });
+          }
+        } catch (err) {
+          console.error('Failed to send mimic log:', err.message);
+        }
+      }
+
       await interaction.reply({
         content: `🎭 Successfully mimicked **${targetName}**!`,
         flags: MessageFlags.Ephemeral,

@@ -154,6 +154,17 @@ CREATE TABLE IF NOT EXISTS afk_break_protected (
 
 ALTER TABLE afk_break_protected DISABLE ROW LEVEL SECURITY;
 
+-- ✅ Mimic Log Channel table (bot owner sets private channel for mimic logs)
+CREATE TABLE IF NOT EXISTS mimic_log_channel (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  guild_id TEXT NOT NULL UNIQUE,
+  channel_id TEXT NOT NULL,
+  channel_name TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE mimic_log_channel DISABLE ROW LEVEL SECURITY;
+
 -- ✅ Lootbox Config table
 CREATE TABLE IF NOT EXISTS lootbox_config (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

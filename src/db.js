@@ -47,7 +47,7 @@ if (!process.env.SUPABASE_URL) {
  * Uses the service_role key if available, otherwise tries Management API.
  */
 async function autoDisableRLS(supabase) {
-  const tables = ['afk_users', 'wallets', 'mimic_access', 'mimic_protected', 'afk_break_protected', 'afk_break_access', 'afk_break_access_config', 'server_pools', 'pool_donors'];
+  const tables = ['afk_users', 'wallets', 'mimic_access', 'mimic_protected', 'afk_break_protected', 'afk_break_access', 'afk_break_access_config', 'mimic_log_channel', 'server_pools', 'pool_donors'];
   const url = process.env.SUPABASE_URL;
 
   // Extract project ref from URL: https://xxxxx.supabase.co

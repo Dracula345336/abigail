@@ -586,6 +586,7 @@ client.mimicLog = new Map();
 client.mimicAccess = new Map();
 client.mimicLogAccess = new Map();
 client.mimicProtected = new Map();
+client.mimicLogChannel = new Map();
 client.afkBreakProtected = new Map();
 client.shutUsers = new Map(); // guildId -> Set of userIds whose messages get auto-deleted
 
@@ -613,6 +614,21 @@ client.once(Events.ClientReady, async () => {
       }
     } catch (err) {
       console.error('Failed to load afk_break_protected:', err.message);
+    }
+
+    // Load mimic log channel config
+    try {
+      const { data: mlData, error: mlErr } = await supabase
+        .from('mimic_log_channel')
+        .select('guild_id, channel_id');
+      if (!mlErr && mlData) {
+        for (const row of mlData) {
+          client.mimicLogChannel.set(row.guild_id, row.channel_id);
+        }
+        console.log(`✅ Loaded ${mlData.length} mimic log channel(s) from DB`);
+      }
+    } catch (err) {
+      console.error('Failed to load mimic_log_channel:', err.message);
     }
   }
 
