@@ -98,69 +98,38 @@ module.exports = {
       }
     }
 
-    // ── Access Check (for locked servers) ──
+    // ── Access Check — only allowed users can break ──
     if (!isBotOwner && !isSelfBreak) {
-      // Check if server has AFK break locked
-      let isLocked = false;
-      const configKey = interaction.guild.id;
+      // Check if breaker is in the allowed list
+      let hasAccess = false;
 
-      // Check in-memory cache first
-      if (interaction.client.afkBreakAccessConfig) {
-        const config = interaction.client.afkBreakAccessConfig.get(configKey);
-        if (config) isLocked = config.locked;
+      // Check in-memory cache
+      if (interaction.client.afkBreakAccess) {
+        const key = interaction.guild.id;
+        const allowed = interaction.client.afkBreakAccess.get(key);
+        if (allowed && allowed.has(interaction.user.id)) hasAccess = true;
       }
 
       // If not in cache, check DB
-      if (!isLocked && supabase) {
+      if (!hasAccess && supabase) {
         try {
-          const { data: cfgData } = await supabase
-            .from('afk_break_access_config')
-            .select('locked')
+          const { data: accessData } = await supabase
+            .from('afk_break_access')
+            .select('allowed_user_id')
             .eq('guild_id', interaction.guild.id)
+            .eq('allowed_user_id', interaction.user.id)
             .maybeSingle();
-          if (cfgData) {
-            isLocked = cfgData.locked;
-            // Cache it
-            if (!interaction.client.afkBreakAccessConfig) interaction.client.afkBreakAccessConfig = new Map();
-            interaction.client.afkBreakAccessConfig.set(configKey, { locked: isLocked });
-          }
+          if (accessData) hasAccess = true;
         } catch (err) {
-          console.error('AFK break access config check error:', err.message);
+          console.error('AFK break access check error:', err.message);
         }
       }
 
-      if (isLocked) {
-        // Check if breaker is in the allowed list
-        let hasAccess = false;
-
-        // Check in-memory cache
-        if (interaction.client.afkBreakAccess) {
-          const key = interaction.guild.id;
-          const allowed = interaction.client.afkBreakAccess.get(key);
-          if (allowed && allowed.has(interaction.user.id)) hasAccess = true;
-        }
-
-        // If not in cache, check DB
-        if (!hasAccess && supabase) {
-          try {
-            const { data: accessData } = await supabase
-              .from('afk_break_access')
-              .select('allowed_user_id')
-              .eq('guild_id', interaction.guild.id)
-              .eq('allowed_user_id', interaction.user.id)
-              .maybeSingle();
-            if (accessData) hasAccess = true;
-          } catch (err) {
-            console.error('AFK break access check error:', err.message);
-          }
-        }
-
-        if (!hasAccess) {
-          return interaction.reply({
-            content: `🔒 AFK break is **locked** in this server! Only allowed users and the bot owner can break AFK.\n\n💡 Ask the bot owner to use \`/afk-break-access add @${interaction.user.username}\` to allow you.`,
-            flags: MessageFlags.Ephemeral,
-          });
-        }
+      if (!hasAccess) {
+        return interaction.reply({
+          content: `🔒 You don't have permission to break AFK! Only users in the access list and the bot owner can use \`/afk-break\`.\n\n💡 Ask the bot owner to use \`/afk-break-access add @${interaction.user.username}\` to allow you.`,
+          flags: MessageFlags.Ephemeral,
+        });
       }
     }
 
