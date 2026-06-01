@@ -1818,18 +1818,28 @@ client.on('messageCreate', async (message) => {
   }
 
   /* ═══════════════════════════════════════════
-     💋 .slap / .kiss — Anime GIF interactions
+     💋 Anime GIF Interaction Commands
+     .slap .kiss .kick .angry .kill
      ═══════════════════════════════════════════ */
-  if (msgContent.startsWith('.slap') || msgContent.startsWith('.kiss')) {
-    const action = msgContent.startsWith('.slap') ? 'slap' : 'kiss';
+  const GIF_COMMANDS = {
+    '.slap':  { emoji: '👋', text: 'slapped',   color: 0xFF4444, api: 'slap' },
+    '.kiss':  { emoji: '💋', text: 'kissed',     color: 0xFF69B4, api: 'kiss' },
+    '.kick':  { emoji: '👢', text: 'kicked',     color: 0xFF8800, api: 'cuddle' },
+    '.angry': { emoji: '😡', text: 'is angry at', color: 0xFF2222, api: 'smug' },
+    '.kill':  { emoji: '💀', text: 'killed',     color: 0x8B0000, api: 'feed' },
+  };
+
+  const gifCmd = Object.keys(GIF_COMMANDS).find(cmd => msgContent.startsWith(cmd));
+  if (gifCmd) {
+    const cfg = GIF_COMMANDS[gifCmd];
     const target = message.mentions.users.first();
-    const actionEmoji = action === 'slap' ? '👋' : '💋';
-    const actionText = action === 'slap' ? 'slapped' : 'kissed';
+    const noTargetText = gifCmd === '.angry' ? 'is angry!' : gifCmd === '.kill' ? 'killed the air!' : `${cfg.text} themselves!`;
 
     try {
       const https = require('https');
       const gifUrl = await new Promise((resolve, reject) => {
-        https.get(`https://nekos.life/api/v2/img/${action}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
+        const apiEp = cfg.api;
+        https.get(`https://nekos.life/api/v2/img/${apiEp}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
           let data = '';
           res.on('data', chunk => data += chunk);
           res.on('end', () => {
@@ -1839,10 +1849,10 @@ client.on('messageCreate', async (message) => {
       });
 
       const embed = new EmbedBuilder()
-        .setColor(action === 'slap' ? 0xFF4444 : 0xFF69B4)
+        .setColor(cfg.color)
         .setDescription(target
-          ? `${actionEmoji} **${message.member.displayName}** ${actionText} **${target.displayName}**!`
-          : `${actionEmoji} **${message.member.displayName}** ${actionText} themselves!`)
+          ? `${cfg.emoji} **${message.member.displayName}** ${cfg.text} **${target.displayName}**!`
+          : `${cfg.emoji} **${message.member.displayName}** ${noTargetText}`)
         .setImage(gifUrl)
         .setFooter({ text: `Abigail 💕` })
         .setTimestamp();
@@ -1851,65 +1861,9 @@ client.on('messageCreate', async (message) => {
     } catch (err) {
       console.error('GIF API error:', err.message);
       return message.reply(target
-        ? `${actionEmoji} **${message.member.displayName}** ${actionText} **${target.displayName}**!`
-        : `${actionEmoji} **${message.member.displayName}** ${actionText} themselves!`).catch(() => {});
+        ? `${cfg.emoji} **${message.member.displayName}** ${cfg.text} **${target.displayName}**!`
+        : `${cfg.emoji} **${message.member.displayName}** ${noTargetText}`).catch(() => {});
     }
-  }
-
-  /* ═══════════════════════════════════════════
-     👢 .kick — Anime kick GIF
-     😡 .angry — Cute angry baby anime GIF
-     ═══════════════════════════════════════════ */
-  if (msgContent.startsWith('.kick') || msgContent.startsWith('.angry')) {
-    const action = msgContent.startsWith('.kick') ? 'kick' : 'angry';
-    const target = message.mentions.users.first();
-
-    const KICK_GIFS = [
-      'https://cdn.nekos.life/kick/kick_001.gif',
-      'https://cdn.nekos.life/kick/kick_002.gif',
-      'https://cdn.nekos.life/kick/kick_003.gif',
-      'https://cdn.nekos.life/kick/kick_004.gif',
-      'https://cdn.nekos.life/kick/kick_005.gif',
-      'https://cdn.nekos.life/kick/kick_006.gif',
-      'https://cdn.nekos.life/kick/kick_007.gif',
-      'https://cdn.nekos.life/kick/kick_008.gif',
-      'https://cdn.nekos.life/kick/kick_009.gif',
-      'https://cdn.nekos.life/kick/kick_010.gif',
-    ];
-
-    const ANGRY_GIFS = [
-      'https://cdn.nekos.life/slap/slap_001.gif',
-      'https://cdn.nekos.life/slap/slap_002.gif',
-      'https://cdn.nekos.life/slap/slap_003.gif',
-      'https://cdn.nekos.life/slap/slap_004.gif',
-      'https://cdn.nekos.life/slap/slap_005.gif',
-      'https://cdn.nekos.life/slap/slap_006.gif',
-      'https://cdn.nekos.life/slap/slap_007.gif',
-      'https://cdn.nekos.life/slap/slap_008.gif',
-      'https://cdn.nekos.life/slap/slap_009.gif',
-      'https://cdn.nekos.life/slap/slap_010.gif',
-      'https://cdn.nekos.life/slap/slap_011.gif',
-      'https://cdn.nekos.life/slap/slap_012.gif',
-    ];
-
-    const gifUrl = action === 'kick'
-      ? KICK_GIFS[Math.floor(Math.random() * KICK_GIFS.length)]
-      : ANGRY_GIFS[Math.floor(Math.random() * ANGRY_GIFS.length)];
-
-    const actionEmoji = action === 'kick' ? '👢' : '😡';
-    const actionText = action === 'kick' ? 'kicked' : 'is angry at';
-    const embedColor = action === 'kick' ? 0xFF8800 : 0xFF2222;
-
-    const embed = new EmbedBuilder()
-      .setColor(embedColor)
-      .setDescription(target
-        ? `${actionEmoji} **${message.member.displayName}** ${actionText} **${target.displayName}**!`
-        : `${actionEmoji} **${message.member.displayName}** ${actionText === 'kicked' ? 'kicked the air!' : 'is angry!'} `)
-      .setImage(gifUrl)
-      .setFooter({ text: `Abigail 💕` })
-      .setTimestamp();
-
-    return message.channel.send({ embeds: [embed] }).catch(console.error);
   }
 
   /* ═══════════════════════════════════════════
