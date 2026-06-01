@@ -1857,6 +1857,62 @@ client.on('messageCreate', async (message) => {
   }
 
   /* ═══════════════════════════════════════════
+     👢 .kick — Anime kick GIF
+     😡 .angry — Cute angry baby anime GIF
+     ═══════════════════════════════════════════ */
+  if (msgContent.startsWith('.kick') || msgContent.startsWith('.angry')) {
+    const action = msgContent.startsWith('.kick') ? 'kick' : 'angry';
+    const target = message.mentions.users.first();
+
+    const KICK_GIFS = [
+      'https://cdn.nekos.life/kick/kick_001.gif',
+      'https://cdn.nekos.life/kick/kick_002.gif',
+      'https://cdn.nekos.life/kick/kick_003.gif',
+      'https://cdn.nekos.life/kick/kick_004.gif',
+      'https://cdn.nekos.life/kick/kick_005.gif',
+      'https://cdn.nekos.life/kick/kick_006.gif',
+      'https://cdn.nekos.life/kick/kick_007.gif',
+      'https://cdn.nekos.life/kick/kick_008.gif',
+      'https://cdn.nekos.life/kick/kick_009.gif',
+      'https://cdn.nekos.life/kick/kick_010.gif',
+    ];
+
+    const ANGRY_GIFS = [
+      'https://cdn.nekos.life/slap/slap_001.gif',
+      'https://cdn.nekos.life/slap/slap_002.gif',
+      'https://cdn.nekos.life/slap/slap_003.gif',
+      'https://cdn.nekos.life/slap/slap_004.gif',
+      'https://cdn.nekos.life/slap/slap_005.gif',
+      'https://cdn.nekos.life/slap/slap_006.gif',
+      'https://cdn.nekos.life/slap/slap_007.gif',
+      'https://cdn.nekos.life/slap/slap_008.gif',
+      'https://cdn.nekos.life/slap/slap_009.gif',
+      'https://cdn.nekos.life/slap/slap_010.gif',
+      'https://cdn.nekos.life/slap/slap_011.gif',
+      'https://cdn.nekos.life/slap/slap_012.gif',
+    ];
+
+    const gifUrl = action === 'kick'
+      ? KICK_GIFS[Math.floor(Math.random() * KICK_GIFS.length)]
+      : ANGRY_GIFS[Math.floor(Math.random() * ANGRY_GIFS.length)];
+
+    const actionEmoji = action === 'kick' ? '👢' : '😡';
+    const actionText = action === 'kick' ? 'kicked' : 'is angry at';
+    const embedColor = action === 'kick' ? 0xFF8800 : 0xFF2222;
+
+    const embed = new EmbedBuilder()
+      .setColor(embedColor)
+      .setDescription(target
+        ? `${actionEmoji} **${message.member.displayName}** ${actionText} **${target.displayName}**!`
+        : `${actionEmoji} **${message.member.displayName}** ${actionText === 'kicked' ? 'kicked the air!' : 'is angry!'} `)
+      .setImage(gifUrl)
+      .setFooter({ text: `Abigail 💕` })
+      .setTimestamp();
+
+    return message.channel.send({ embeds: [embed] }).catch(console.error);
+  }
+
+  /* ═══════════════════════════════════════════
      🐺 Werewolf Game Commands — Wolfia Style
      ═══════════════════════════════════════════ */
 
