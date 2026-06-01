@@ -1818,6 +1818,45 @@ client.on('messageCreate', async (message) => {
   }
 
   /* ═══════════════════════════════════════════
+     💋 .slap / .kiss — Anime GIF interactions
+     ═══════════════════════════════════════════ */
+  if (msgContent.startsWith('.slap') || msgContent.startsWith('.kiss')) {
+    const action = msgContent.startsWith('.slap') ? 'slap' : 'kiss';
+    const target = message.mentions.users.first();
+    const actionEmoji = action === 'slap' ? '👋' : '💋';
+    const actionText = action === 'slap' ? 'slapped' : 'kissed';
+
+    try {
+      const https = require('https');
+      const gifUrl = await new Promise((resolve, reject) => {
+        https.get(`https://nekos.life/api/v2/img/${action}`, { headers: { 'User-Agent': 'Abigail-Bot' } }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try { resolve(JSON.parse(data).url); } catch (e) { reject(e); }
+          });
+        }).on('error', reject);
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor(action === 'slap' ? 0xFF4444 : 0xFF69B4)
+        .setDescription(target
+          ? `${actionEmoji} **${message.member.displayName}** ${actionText} **${target.displayName}**!`
+          : `${actionEmoji} **${message.member.displayName}** ${actionText} themselves!`)
+        .setImage(gifUrl)
+        .setFooter({ text: `Abigail 💕` })
+        .setTimestamp();
+
+      return message.channel.send({ embeds: [embed] });
+    } catch (err) {
+      console.error('GIF API error:', err.message);
+      return message.reply(target
+        ? `${actionEmoji} **${message.member.displayName}** ${actionText} **${target.displayName}**!`
+        : `${actionEmoji} **${message.member.displayName}** ${actionText} themselves!`).catch(() => {});
+    }
+  }
+
+  /* ═══════════════════════════════════════════
      🐺 Werewolf Game Commands — Wolfia Style
      ═══════════════════════════════════════════ */
 
