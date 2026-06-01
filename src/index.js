@@ -1391,6 +1391,11 @@ const AFK_PREFIXES = ['!afk', '?afk', '.afk'];
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
+  /* ── Imagine Auto-Response ── */
+  if (message.content.toLowerCase().trim() === 'imagine') {
+    return message.reply("Can't even imagine 💀").catch(() => {});
+  }
+
   /* ── Dracula Name Tracker ── */
   const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
   if (message.guild && message.author.id !== BOT_OWNER_ID) {
