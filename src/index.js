@@ -3152,6 +3152,11 @@ client.on('messageCreate', async (message) => {
         if (dbError) { console.error('Supabase query error:', dbError); break; }
         if (mentionedAfk) {
           const away = timeSince(mentionedAfk.afk_time);
+          // Quick channel message — auto-delete after 1s
+          const afkMsg = await message.reply({ content: `🌙 **${mentionedAfk.username}** is currently AFK! \`${mentionedAfk.reason}\` — Away for ${away}` }).catch(() => null);
+          if (afkMsg) {
+            setTimeout(() => { afkMsg.delete().catch(() => {}); }, 1000);
+          }
           // DM the AFK user — tell them who pinged and where
           try {
             const afkUser = await client.users.fetch(userId);
