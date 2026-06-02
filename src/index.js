@@ -3153,12 +3153,6 @@ client.on('messageCreate', async (message) => {
             .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon` })
             .setTimestamp();
           const afkMsg = await message.reply({ embeds: [embed] }).catch(console.error);
-          // Auto-delete the AFK mention after 1 second
-          if (afkMsg) {
-            setTimeout(() => {
-              afkMsg.delete().catch(() => {});
-            }, 1000);
-          }
           mentionCooldowns.set(cooldownKey, now);
           break;
         }
