@@ -3213,15 +3213,10 @@ client.on('messageCreate', async (message) => {
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setFooter({ text: "💫 So glad you're back!" })
         .setTimestamp();
-      // Send as DM — only the returning user sees it (ephemeral-like)
-      try {
-        await message.author.send({ embeds: [embed] });
-      } catch (e) {
-        // DM blocked — fallback to channel reply, auto-delete after 5s
-        const returnMsg = await message.reply({ embeds: [embed] }).catch(() => null);
-        if (returnMsg) {
-          setTimeout(() => { returnMsg.delete().catch(() => {}); }, 5000);
-        }
+      // Send in server channel — auto-delete after 5s
+      const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
+      if (returnMsg) {
+        setTimeout(() => { returnMsg.delete().catch(() => {}); }, 5000);
       }
 
       const isReturnOwner = message.guild.ownerId === message.author.id;
