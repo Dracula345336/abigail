@@ -3152,7 +3152,16 @@ client.on('messageCreate', async (message) => {
             .setThumbnail(mentionedAfk.avatar_url)
             .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon` })
             .setTimestamp();
-          const afkMsg = await message.reply({ embeds: [embed] }).catch(console.error);
+          // Send as DM to the person who pinged — only they see it (ephemeral-like)
+          try {
+            await message.author.send({ embeds: [embed] });
+          } catch (e) {
+            // DM blocked — fallback to channel reply, auto-delete after 5s
+            const afkMsg = await message.reply({ embeds: [embed] }).catch(() => null);
+            if (afkMsg) {
+              setTimeout(() => { afkMsg.delete().catch(() => {}); }, 5000);
+            }
+          }
           mentionCooldowns.set(cooldownKey, now);
           break;
         }
