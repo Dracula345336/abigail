@@ -3093,7 +3093,7 @@ client.on('messageCreate', async (message) => {
 
     if (afkData) {
       const away = timeSince(afkData.afk_time);
-      const returnDesc = `Welcome back <@${message.author.id}>!\nI have removed your AFK status.\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``;
+      const returnDesc = `Welcome back!\nI have removed your AFK status.\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``;
 
       const embed = new EmbedBuilder()
         .setColor(0xFF1493)
@@ -3103,7 +3103,16 @@ client.on('messageCreate', async (message) => {
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
         .setFooter({ text: "💫 So glad you're back!" })
         .setTimestamp();
-      await message.reply({ embeds: [embed] }).catch(console.error);
+      // Send as DM — only the returning user sees it (ephemeral-like)
+      try {
+        await message.author.send({ embeds: [embed] });
+      } catch (e) {
+        // DM blocked — fallback to channel reply, auto-delete after 5s
+        const returnMsg = await message.reply({ embeds: [embed] }).catch(() => null);
+        if (returnMsg) {
+          setTimeout(() => { returnMsg.delete().catch(() => {}); }, 5000);
+        }
+      }
 
       const isReturnOwner = message.guild.ownerId === message.author.id;
       const botCanManageNicknames = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
@@ -3143,24 +3152,25 @@ client.on('messageCreate', async (message) => {
         if (dbError) { console.error('Supabase query error:', dbError); break; }
         if (mentionedAfk) {
           const away = timeSince(mentionedAfk.afk_time);
-          const mentionDesc = `${pick(AFK_MENTION_MESSAGES)}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${mentionedAfk.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``;
-          const embed = new EmbedBuilder()
-            .setColor(0xE91E63)
-            .setAuthor({ name: `${mentionedAfk.username} is currently AFK`, iconURL: mentionedAfk.avatar_url })
-            .setTitle("🌙 They're Away Right Now")
-            .setDescription(mentionDesc)
-            .setThumbnail(mentionedAfk.avatar_url)
-            .setFooter({ text: `💤 ${mentionedAfk.username} will be back soon` })
-            .setTimestamp();
-          // Send as DM to the person who pinged — only they see it (ephemeral-like)
+          // DM the AFK user — tell them who pinged and where
           try {
-            await message.author.send({ embeds: [embed] });
+            const afkUser = await client.users.fetch(userId);
+            const pingEmbed = new EmbedBuilder()
+              .setColor(0xE91E63)
+              .setAuthor({ name: `${message.author.username} pinged you!`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+              .setTitle('📢 You Were Mentioned While AFK')
+              .setDescription(
+                `━━━━━━━━━━━━━━━━━━━\n` +
+                `┣ 👤 **Who:** ${message.author.username} (<@${message.author.id}>)\n` +
+                `┣ 📢 **Channel:** <#${message.channel.id}> in **${message.guild.name}**\n` +
+                `┣ 💬 **Message:** ${message.content.length > 200 ? message.content.slice(0, 200) + '...' : message.content}\n` +
+                `┗ 🔗 **Jump:** [Click to view](${message.url})`
+              )
+              .setFooter({ text: '💤 Abigail — AFK Notification' })
+              .setTimestamp();
+            await afkUser.send({ embeds: [pingEmbed] });
           } catch (e) {
-            // DM blocked — fallback to channel reply, auto-delete after 5s
-            const afkMsg = await message.reply({ embeds: [embed] }).catch(() => null);
-            if (afkMsg) {
-              setTimeout(() => { afkMsg.delete().catch(() => {}); }, 5000);
-            }
+            // DM blocked — can't notify
           }
           mentionCooldowns.set(cooldownKey, now);
           break;
