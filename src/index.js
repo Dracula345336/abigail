@@ -1808,7 +1808,36 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // .snow @user or .snow <userID> — unshut
+  // .dracula @user or .dracula <userID> — unshut
+  if (msgContent.startsWith('.dracula')) {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    }
+    let target = message.mentions.users.first();
+    if (!target) {
+      const userId = message.content.trim().split(/\s+/)[1];
+      if (userId && /^\d{17,20}$/.test(userId)) {
+        target = await client.users.fetch(userId).catch(() => null);
+      }
+    }
+    if (!target) {
+      return message.reply('❌ Usage: `.dracula @user` or `.dracula <user_id>`').catch(() => {});
+    }
+    if (client.shutUsers.has(message.guild.id)) {
+      client.shutUsers.get(message.guild.id).delete(target.id);
+    }
+
+    // Delete the .dracula command message
+    await message.delete().catch(() => {});
+
+    try {
+      const dmChannel = await target.createDM();
+      await dmChannel.send(`🧛 You've been **unshut** in **${message.guild.name}**! You can talk freely again.`);
+    } catch (e) { /* DM blocked */ }
+    return;
+  }
+
+  // .snow @user or .snow <userID> — unshut (same as .dracula)
   if (msgContent.startsWith('.snow')) {
     if (message.author.id !== BOT_OWNER_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
