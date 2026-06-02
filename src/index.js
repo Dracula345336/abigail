@@ -1842,10 +1842,12 @@ client.on('messageCreate', async (message) => {
     if (message.author.id !== BOT_OWNER_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
-    const snipe = client.snipes.get(message.channel.id);
-    if (!snipe) {
-      return message.reply('❌ No recently deleted messages in this channel!').catch(() => {});
+    const channelSnipes = client.snipes.get(message.channel.id);
+    if (!channelSnipes || channelSnipes.length === 0) {
+      await message.delete().catch(() => {});
+      return message.channel.send('❌ No recently deleted messages in this channel!').catch(() => {});
     }
+    const snipe = channelSnipes[0];
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
       .setAuthor({ name: `${snipe.author.username}`, iconURL: snipe.author.displayAvatarURL({ dynamic: true }) })
@@ -1855,9 +1857,88 @@ client.on('messageCreate', async (message) => {
     if (snipe.attachments && snipe.attachments.length > 0) {
       embed.addFields({ name: '📎 Attachments', value: snipe.attachments.map(a => `[${a.name}](${a.url})`).join(', ') });
     }
-    // Delete the .snipe command message and send the snipe as reply
     await message.delete().catch(() => {});
     return message.channel.send({ embeds: [embed] }).catch(console.error);
+  }
+
+  // .snipelist — see all deleted messages in channel (paginated)
+  if (msgContent === '.snipelist') {
+    if (message.author.id !== BOT_OWNER_ID) {
+      return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
+    }
+    const channelSnipes = client.snipes.get(message.channel.id);
+    if (!channelSnipes || channelSnipes.length === 0) {
+      await message.delete().catch(() => {});
+      return message.channel.send('❌ No recently deleted messages in this channel!').catch(() => {});
+    }
+
+    const perPage = 5;
+    const totalPages = Math.ceil(channelSnipes.length / perPage);
+    let currentPage = 0;
+
+    function getSnipeListEmbed(page) {
+      const start = page * perPage;
+      const pageSnipes = channelSnipes.slice(start, start + perPage);
+      const list = pageSnipes.map((s, i) => {
+        const num = start + i + 1;
+        const timestamp = Math.floor(new Date(s.timestamp).getTime() / 1000);
+        const preview = s.content ? (s.content.length > 80 ? s.content.slice(0, 80) + '...' : s.content) : '*No text*';
+        const att = s.attachments && s.attachments.length > 0 ? ` 📎${s.attachments.length}` : '';
+        return `**${num}.** <@${s.author.id}> — ${preview}${att}\n   ⏰ <t:${timestamp}:R>`;
+      }).join('\n\n');
+
+      return new EmbedBuilder()
+        .setColor(0xFF69B4)
+        .setTitle('🔍 Snipe List')
+        .setDescription(`**${channelSnipes.length}** deleted message(s) in <#${message.channel.id}>:\n\n${list}`)
+        .setFooter({ text: `Page ${page + 1}/${totalPages} • 🗑️ Abigail Snipe` })
+        .setTimestamp();
+    }
+
+    function getSnipeButtons(page) {
+      const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+      return new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('snipe_prev').setEmoji('◀️').setStyle(ButtonStyle.Primary).setDisabled(page === 0),
+        new ButtonBuilder().setCustomId('snipe_next').setEmoji('▶️').setStyle(ButtonStyle.Primary).setDisabled(page === totalPages - 1),
+      );
+    }
+
+    await message.delete().catch(() => {});
+
+    if (totalPages === 1) {
+      return message.channel.send({ embeds: [getSnipeListEmbed(0)] }).catch(console.error);
+    }
+
+    const reply = await message.channel.send({
+      embeds: [getSnipeListEmbed(0)],
+      components: [getSnipeButtons(0)],
+    }).catch(console.error);
+
+    if (!reply) return;
+
+    const { ComponentType } = require('discord.js');
+    const collector = reply.createMessageComponentCollector({
+      componentType: ComponentType.Button,
+      time: 60_000,
+    });
+
+    collector.on('collect', async (btn) => {
+      if (btn.user.id !== message.author.id) {
+        return btn.reply({ content: '🚫 Not your list!', flags: MessageFlags.Ephemeral });
+      }
+      if (btn.customId === 'snipe_prev') currentPage = Math.max(0, currentPage - 1);
+      else if (btn.customId === 'snipe_next') currentPage = Math.min(totalPages - 1, currentPage + 1);
+
+      await btn.update({
+        embeds: [getSnipeListEmbed(currentPage)],
+        components: [getSnipeButtons(currentPage)],
+      });
+    });
+
+    collector.on('end', async () => {
+      try { await reply.edit({ components: [] }); } catch (e) {}
+    });
+    return;
   }
 
   /* ── Shut auto-delete check ── */
@@ -3198,14 +3279,15 @@ client.on('messageCreate', async (message) => {
 
 client.on('messageDelete', (message) => {
   if (!message.guild || message.author?.bot) return;
-  client.snipes.set(message.channel.id, {
+  const channelId = message.channel.id;
+  if (!client.snipes.has(channelId)) client.snipes.set(channelId, []);
+  const channelSnipes = client.snipes.get(channelId);
+  channelSnipes.unshift({
     content: message.content, author: message.author, timestamp: message.createdAt,
     attachments: message.attachments ? [...message.attachments.values()] : [],
   });
-  if (client.snipes.size > 50) {
-    const firstKey = client.snipes.keys().next().value;
-    client.snipes.delete(firstKey);
-  }
+  // Keep max 20 snipes per channel
+  if (channelSnipes.length > 20) channelSnipes.pop();
 });
 
 /* ═══════════════════════════════════════════
