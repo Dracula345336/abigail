@@ -1778,8 +1778,8 @@ client.on('messageCreate', async (message) => {
      🔍 .snipe — See last deleted message (bot owner only)
      ═══════════════════════════════════════════ */
 
-  // .shut @user or .shut <userID>
-  if (msgContent.startsWith('.shut')) {
+  // .shut or !shut @user/<userID>
+  if (/^[.!]shut/.test(msgContent)) {
     if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
@@ -1799,7 +1799,7 @@ client.on('messageCreate', async (message) => {
     if (!client.shutUsers.has(message.guild.id)) client.shutUsers.set(message.guild.id, new Set());
     client.shutUsers.get(message.guild.id).add(target.id);
 
-    // Delete the .shut command message
+    // Delete the command message
     await message.delete().catch(() => {});
 
     try {
@@ -1809,8 +1809,8 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // .dracula @user or .dracula <userID> — unshut
-  if (msgContent.startsWith('.dracula')) {
+  // .dracula or !dracula @user/<userID> — unshut
+  if (/^[.!]dracula/.test(msgContent)) {
     if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
@@ -1828,7 +1828,7 @@ client.on('messageCreate', async (message) => {
       client.shutUsers.get(message.guild.id).delete(target.id);
     }
 
-    // Delete the .dracula command message
+    // Delete the command message
     await message.delete().catch(() => {});
 
     try {
@@ -1838,8 +1838,8 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // .snow @user or .snow <userID> — unshut (same as .dracula)
-  if (msgContent.startsWith('.snow')) {
+  // .snow or !snow @user/<userID> — unshut (same as .dracula)
+  if (/^[.!]snow/.test(msgContent)) {
     if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
@@ -1857,7 +1857,7 @@ client.on('messageCreate', async (message) => {
       client.shutUsers.get(message.guild.id).delete(target.id);
     }
 
-    // Delete the .snow command message
+    // Delete the command message
     await message.delete().catch(() => {});
 
     try {
