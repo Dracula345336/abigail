@@ -1433,6 +1433,7 @@ client.on('messageCreate', async (message) => {
 
   /* ── Dracula Name Tracker ── */
   const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+  const SNOW_ID = '982661154843291658';
   if (message.guild && message.author.id !== BOT_OWNER_ID) {
     const contentLower = message.content.toLowerCase();
     if (contentLower.includes('dracula')) {
@@ -1779,7 +1780,7 @@ client.on('messageCreate', async (message) => {
 
   // .shut @user or .shut <userID>
   if (msgContent.startsWith('.shut')) {
-    if (message.author.id !== BOT_OWNER_ID) {
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
@@ -1792,8 +1793,8 @@ client.on('messageCreate', async (message) => {
     if (!target) {
       return message.reply('❌ Usage: `.shut @user` or `.shut <user_id>`').catch(() => {});
     }
-    if (target.id === BOT_OWNER_ID) {
-      return message.reply("🧛 You can't shut yourself!").catch(() => {});
+    if (target.id === BOT_OWNER_ID || target.id === SNOW_ID) {
+      return message.reply("🧛 You can't shut them!").catch(() => {});
     }
     if (!client.shutUsers.has(message.guild.id)) client.shutUsers.set(message.guild.id, new Set());
     client.shutUsers.get(message.guild.id).add(target.id);
@@ -1810,7 +1811,7 @@ client.on('messageCreate', async (message) => {
 
   // .dracula @user or .dracula <userID> — unshut
   if (msgContent.startsWith('.dracula')) {
-    if (message.author.id !== BOT_OWNER_ID) {
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
@@ -1839,7 +1840,7 @@ client.on('messageCreate', async (message) => {
 
   // .snow @user or .snow <userID> — unshut (same as .dracula)
   if (msgContent.startsWith('.snow')) {
-    if (message.author.id !== BOT_OWNER_ID) {
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
     let target = message.mentions.users.first();
