@@ -3214,7 +3214,8 @@ client.on('messageCreate', async (message) => {
         .setFooter({ text: "💫 So glad you're back!" })
         .setTimestamp();
       // Send in server channel — auto-delete after 5s
-      const returnMsg = await message.channel.send({ embeds: [embed] }).catch(() => null);
+      console.log(`[AFK RETURN] Sending welcome back in channel: ${message.channel.name} (${message.channel.id})`);
+      const returnMsg = await message.channel.send({ embeds: [embed] }).catch((err) => { console.error('[AFK RETURN] Channel send failed:', err.message); return null; });
       if (returnMsg) {
         setTimeout(() => { returnMsg.delete().catch(() => {}); }, 5000);
       }
