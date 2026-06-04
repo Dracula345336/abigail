@@ -2031,9 +2031,9 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // .snipe — see last deleted message
-  if (msgContent === '.snipe') {
-    if (message.author.id !== BOT_OWNER_ID) {
+  // .snipe or !snipe — see last deleted message
+  if (/^[.!]snipe$/.test(msgContent)) {
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
     const channelSnipes = client.snipes.get(message.channel.id);
@@ -2055,9 +2055,9 @@ client.on('messageCreate', async (message) => {
     return message.channel.send({ embeds: [embed] }).catch(console.error);
   }
 
-  // .snipelist — see all deleted messages in channel (paginated)
-  if (msgContent === '.snipelist') {
-    if (message.author.id !== BOT_OWNER_ID) {
+  // .snipelist or !snipelist — see all deleted messages in channel (paginated)
+  if (/^[.!]snipelist$/.test(msgContent)) {
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
       return message.reply('🚫 Only the bot owner can use this!').catch(() => {});
     }
     const channelSnipes = client.snipes.get(message.channel.id);
