@@ -2044,7 +2044,7 @@ client.on('messageCreate', async (message) => {
     const snipe = channelSnipes[0];
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
-      .setAuthor({ name: `${snipe.author.username}`, iconURL: snipe.author.displayAvatarURL({ dynamic: true }) })
+      .setAuthor({ name: `${snipe.author.username}`, iconURL: snipe.author.displayAvatarURL })
       .setDescription(snipe.content || '*No text content*')
       .setFooter({ text: `Deleted in #${message.channel.name}` })
       .setTimestamp(snipe.timestamp);
@@ -3469,12 +3469,24 @@ client.on('messageCreate', async (message) => {
 
 client.on('messageDelete', (message) => {
   if (!message.guild || message.author?.bot) return;
+  if (!message.author) return; // skip messages with no author (system messages)
   const channelId = message.channel.id;
   if (!client.snipes.has(channelId)) client.snipes.set(channelId, []);
   const channelSnipes = client.snipes.get(channelId);
   channelSnipes.unshift({
-    content: message.content, author: message.author, timestamp: message.createdAt,
-    attachments: message.attachments ? [...message.attachments.values()] : [],
+    content: message.content || '',
+    author: {
+      id: message.author.id,
+      username: message.author.username,
+      tag: message.author.tag,
+      displayAvatarURL: message.author.displayAvatarURL({ dynamic: true }),
+    },
+    timestamp: message.createdAt,
+    attachments: message.attachments ? [...message.attachments.values()].map(a => ({
+      name: a.name,
+      url: a.url,
+      contentType: a.contentType,
+    })) : [],
   });
   // Keep max 20 snipes per channel
   if (channelSnipes.length > 20) channelSnipes.pop();

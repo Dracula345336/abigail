@@ -43,7 +43,7 @@ module.exports = {
       .setColor(0xFF69B4)
       .setAuthor({
         name: `${author.username}`,
-        iconURL: author.displayAvatarURL({ dynamic: true }),
+        iconURL: author.displayAvatarURL,
       })
       .setDescription(content || '*No text content*')
       .setFooter({ text: `💡 Sniped by ${interaction.user.username}` })
