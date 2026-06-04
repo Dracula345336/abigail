@@ -630,6 +630,57 @@ client.once(Events.ClientReady, async () => {
     } catch (err) {
       console.error('Failed to load mimic_log_channel:', err.message);
     }
+
+    // Load mimic access from DB (persistent across restarts)
+    try {
+      const { data: maData, error: maErr } = await supabase
+        .from('mimic_access')
+        .select('guild_id, user_id');
+      if (!maErr && maData) {
+        for (const row of maData) {
+          if (!client.mimicAccess) client.mimicAccess = new Map();
+          if (!client.mimicAccess.has(row.guild_id)) client.mimicAccess.set(row.guild_id, new Set());
+          client.mimicAccess.get(row.guild_id).add(row.user_id);
+        }
+        console.log(`✅ Loaded ${maData.length} mimic access user(s) from DB`);
+      }
+    } catch (err) {
+      console.error('Failed to load mimic_access:', err.message);
+    }
+
+    // Load AFK break access from DB (persistent across restarts)
+    try {
+      const { data: abaData, error: abaErr } = await supabase
+        .from('afk_break_access')
+        .select('guild_id, allowed_user_id');
+      if (!abaErr && abaData) {
+        for (const row of abaData) {
+          if (!client.afkBreakAccess) client.afkBreakAccess = new Map();
+          if (!client.afkBreakAccess.has(row.guild_id)) client.afkBreakAccess.set(row.guild_id, new Set());
+          client.afkBreakAccess.get(row.guild_id).add(row.allowed_user_id);
+        }
+        console.log(`✅ Loaded ${abaData.length} AFK break access user(s) from DB`);
+      }
+    } catch (err) {
+      console.error('Failed to load afk_break_access:', err.message);
+    }
+
+    // Load mimic protected from DB (persistent across restarts)
+    try {
+      const { data: mpData, error: mpErr } = await supabase
+        .from('mimic_protected')
+        .select('guild_id, user_id');
+      if (!mpErr && mpData) {
+        for (const row of mpData) {
+          if (!client.mimicProtected) client.mimicProtected = new Map();
+          if (!client.mimicProtected.has(row.guild_id)) client.mimicProtected.set(row.guild_id, new Set());
+          client.mimicProtected.get(row.guild_id).add(row.user_id);
+        }
+        console.log(`✅ Loaded ${mpData.length} mimic protected user(s) from DB`);
+      }
+    } catch (err) {
+      console.error('Failed to load mimic_protected:', err.message);
+    }
   }
 
   if (!process.env.CLIENT_ID) {
