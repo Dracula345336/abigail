@@ -25,8 +25,9 @@ module.exports = {
   async execute(interaction) {
     const supabase = require('../db');
     const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+    const SNOW_ID = '982661154843291658';
 
-    if (interaction.user.id !== BOT_OWNER_ID) {
+    if (interaction.user.id !== BOT_OWNER_ID && interaction.user.id !== SNOW_ID) {
       return interaction.reply({
         content: '🚫 Only the **bot owner** can set up the mimic log channel!',
         flags: MessageFlags.Ephemeral,
@@ -102,25 +103,51 @@ module.exports = {
           });
         }
 
-        // Create private channel — only bot owner + bot can see
+        // Create private channel — bot owner + Snow + bot can see
+        const permissionOverwrites = [
+          {
+            id: interaction.guild.id, // @everyone
+            deny: [PermissionFlagsBits.ViewChannel],
+          },
+          {
+            id: interaction.user.id, // bot owner or Snow
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+          },
+          {
+            id: botMember.id, // bot itself
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+          },
+        ];
+        // Add Snow if she's not the one running the command
+        if (SNOW_ID !== interaction.user.id) {
+          try {
+            const snowMember = await interaction.guild.members.fetch(SNOW_ID).catch(() => null);
+            if (snowMember) {
+              permissionOverwrites.push({
+                id: SNOW_ID,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+              });
+            }
+          } catch (e) { /* Snow not in server */ }
+        }
+        // Also add bot owner if they're not the one running the command
+        if (BOT_OWNER_ID !== interaction.user.id) {
+          try {
+            const ownerMember = await interaction.guild.members.fetch(BOT_OWNER_ID).catch(() => null);
+            if (ownerMember) {
+              permissionOverwrites.push({
+                id: BOT_OWNER_ID,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+              });
+            }
+          } catch (e) { /* owner not in server */ }
+        }
+
         const newChannel = await interaction.guild.channels.create({
           name: 'mimic-logs',
           type: ChannelType.GuildText,
-          topic: '🎭 Private mimic usage logs — only bot owner can see',
-          permissionOverwrites: [
-            {
-              id: interaction.guild.id, // @everyone
-              deny: [PermissionFlagsBits.ViewChannel],
-            },
-            {
-              id: interaction.user.id, // bot owner
-              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-            },
-            {
-              id: botMember.id, // bot itself
-              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-            },
-          ],
+          topic: '🎭 Private mimic usage logs — bot owner + Snow can see',
+          permissionOverwrites,
           reason: 'Mimic log channel created by bot owner',
         });
 

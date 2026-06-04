@@ -144,27 +144,34 @@ module.exports = {
       let logChannelId = null;
       if (interaction.client.mimicLogChannel) {
         logChannelId = interaction.client.mimicLogChannel.get(interaction.guild.id);
+        console.log(`[MIMIC LOG] In-memory logChannelId: ${logChannelId}`);
       }
       if (!logChannelId && supabase) {
         try {
-          const { data } = await supabase
+          const { data, error: dbErr } = await supabase
             .from('mimic_log_channel')
             .select('channel_id')
             .eq('guild_id', interaction.guild.id)
             .maybeSingle();
+          if (dbErr) {
+            console.error('[MIMIC LOG] Supabase fetch error:', dbErr.message);
+          }
           if (data) {
             logChannelId = data.channel_id;
+            console.log(`[MIMIC LOG] DB logChannelId: ${logChannelId}`);
             if (!interaction.client.mimicLogChannel) interaction.client.mimicLogChannel = new Map();
             interaction.client.mimicLogChannel.set(interaction.guild.id, logChannelId);
+          } else {
+            console.log(`[MIMIC LOG] No mimic log channel found in DB for guild ${interaction.guild.id}`);
           }
         } catch (err) {
-          console.error('Mimic log channel fetch error:', err.message);
+          console.error('[MIMIC LOG] Fetch error:', err.message);
         }
       }
 
       if (logChannelId) {
         try {
-          const logCh = await interaction.client.channels.fetch(logChannelId);
+          const logCh = await interaction.client.channels.fetch(logChannelId).catch(() => null);
           if (logCh) {
             const logEmbed = new EmbedBuilder()
               .setColor(0x2B2D31)
@@ -180,10 +187,15 @@ module.exports = {
               .setFooter({ text: `User ID: ${interaction.user.id} | Target ID: ${targetUser.id}` })
               .setTimestamp();
             await logCh.send({ embeds: [logEmbed] });
+            console.log(`[MIMIC LOG] ✅ Sent log to channel ${logCh.name} (${logCh.id})`);
+          } else {
+            console.error(`[MIMIC LOG] ❌ Could not fetch channel ${logChannelId} — it may have been deleted`);
           }
         } catch (err) {
-          console.error('Failed to send mimic log:', err.message);
+          console.error('[MIMIC LOG] ❌ Failed to send mimic log:', err.message);
         }
+      } else {
+        console.log(`[MIMIC LOG] No log channel set — skipping log`);
       }
 
       await interaction.reply({
