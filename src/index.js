@@ -1867,6 +1867,119 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
+  // .afkbreak or !afkbreak @user/<userID> — break someone's AFK
+  if (/^[.!]afkbreak/.test(msgContent)) {
+    if (message.author.id !== BOT_OWNER_ID && message.author.id !== SNOW_ID) {
+      return message.reply('🚫 Only the bot owner and Snow can use this!').catch(() => {});
+    }
+    let target = message.mentions.users.first();
+    if (!target) {
+      const userId = message.content.trim().split(/\s+/)[1];
+      if (userId && /^\d{17,20}$/.test(userId)) {
+        target = await client.users.fetch(userId).catch(() => null);
+      }
+    }
+    if (!target) {
+      return message.reply('❌ Usage: `.afkbreak @user` or `.afkbreak <user_id>`').catch(() => {});
+    }
+
+    const { data: afkData, error: fetchErr } = await supabase
+      .from('afk_users')
+      .select('*')
+      .eq('user_id', target.id)
+      .eq('guild_id', message.guild.id)
+      .maybeSingle();
+
+    if (fetchErr) { console.error('AFK break fetch error:', fetchErr); return; }
+    if (!afkData) {
+      await message.delete().catch(() => {});
+      return message.reply(`✨ **${target.username}** is not AFK right now!`).catch(() => {});
+    }
+
+    // Protection check — only bot owner can break protected users
+    let isProtected = false;
+    if (client.afkBreakProtected) {
+      const guildProt = client.afkBreakProtected.get(message.guild.id);
+      if (guildProt && guildProt.has(target.id)) isProtected = true;
+    }
+    if (!isProtected && supabase) {
+      try {
+        const { data: protData } = await supabase
+          .from('afk_break_protected')
+          .select('user_id')
+          .eq('guild_id', message.guild.id)
+          .eq('user_id', target.id)
+          .maybeSingle();
+        if (protData) isProtected = true;
+      } catch (e) { console.error('Protection check error:', e.message); }
+    }
+    if (isProtected && message.author.id !== BOT_OWNER_ID) {
+      await message.delete().catch(() => {});
+      return message.reply(`🛡️ **${target.username}** is AFK break protected! Only the bot owner can break their AFK.`).catch(() => {});
+    }
+
+    // Remove AFK
+    const { error: delErr } = await supabase
+      .from('afk_users')
+      .delete()
+      .eq('user_id', target.id)
+      .eq('guild_id', message.guild.id);
+
+    if (delErr) {
+      console.error('AFK break delete error:', delErr);
+      return message.reply('💔 Something went wrong removing AFK status.').catch(() => {});
+    }
+
+    // Remove AFK role & nickname
+    const targetMember = await message.guild.members.fetch(target.id).catch(() => null);
+    if (targetMember) {
+      const afkRole = message.guild.roles.cache.find(r => r.name === AFK_ROLE_NAME);
+      if (afkRole && targetMember.roles.cache.has(afkRole.id)) {
+        try { await targetMember.roles.remove(afkRole, 'AFK broken via .afkbreak'); } catch (e) { /* skip */ }
+      }
+      const isTargetOwner = message.guild.ownerId === target.id;
+      const botCanNick = message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageNicknames);
+      if (!isTargetOwner && botCanNick) {
+        try {
+          const normalNick = getNormalNickname(targetMember.nickname, target.username);
+          await targetMember.setNickname(normalNick, 'AFK broken — nickname restored');
+        } catch (e) { /* skip */ }
+      }
+    }
+
+    await message.delete().catch(() => {});
+
+    const away = timeSince(afkData.afk_time);
+    const breakEmbed = new EmbedBuilder()
+      .setColor(0xFF69B4)
+      .setAuthor({ name: `${target.username}'s AFK was broken!`, iconURL: target.displayAvatarURL({ dynamic: true }) })
+      .setTitle('🔨 AFK Broken!')
+      .setDescription(`**${message.author.username}** broke **${target.username}**'s AFK!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``)
+      .setThumbnail(target.displayAvatarURL({ dynamic: true, size: 256 }))
+      .setFooter({ text: `💨 Forcefully returned by ${message.author.username}` })
+      .setTimestamp();
+
+    await message.channel.send({ embeds: [breakEmbed] });
+
+    // DM the target
+    try {
+      const dmEmbed = new EmbedBuilder()
+        .setColor(0xFF69B4)
+        .setTitle('🔨 Your AFK Was Broken!')
+        .setDescription(
+          `**${message.author.username}** broke your AFK in **${message.guild.name}**!\n\n━━━━━━━━━━━━━━━━━━━\n` +
+          `┣ 📝 **Your Reason:** \`${afkData.reason}\`\n` +
+          `┣ ⏱️ **You Were Away For:** \`${away}\`\n` +
+          `┗ 💨 **Broken By:** ${message.author.username}`
+        )
+        .setFooter({ text: '💕 Abigail — AFK Notification' })
+        .setTimestamp();
+      await target.send({ embeds: [dmEmbed] });
+    } catch (e) { /* DM blocked */ }
+
+    return;
+  }
+
   // .snipe — see last deleted message
   if (msgContent === '.snipe') {
     if (message.author.id !== BOT_OWNER_ID) {
