@@ -142,10 +142,13 @@ module.exports = {
 
       /* ── Send log to mimic-log channel if set ── */
       let logChannelId = null;
+
+      // Check in-memory cache first
       if (interaction.client.mimicLogChannel) {
         logChannelId = interaction.client.mimicLogChannel.get(interaction.guild.id);
-        console.log(`[MIMIC LOG] In-memory logChannelId: ${logChannelId}`);
       }
+
+      // If not cached, check DB
       if (!logChannelId && supabase) {
         try {
           const { data, error: dbErr } = await supabase
@@ -158,21 +161,37 @@ module.exports = {
           }
           if (data) {
             logChannelId = data.channel_id;
-            console.log(`[MIMIC LOG] DB logChannelId: ${logChannelId}`);
             if (!interaction.client.mimicLogChannel) interaction.client.mimicLogChannel = new Map();
             interaction.client.mimicLogChannel.set(interaction.guild.id, logChannelId);
-          } else {
-            console.log(`[MIMIC LOG] No mimic log channel found in DB for guild ${interaction.guild.id}`);
           }
         } catch (err) {
-          console.error('[MIMIC LOG] Fetch error:', err.message);
+          console.error('[MIMIC LOG] DB error:', err.message);
+        }
+      }
+
+      // If still no log channel, try to find existing #mimic-logs channel in the server
+      if (!logChannelId) {
+        const existingCh = interaction.guild.channels.cache.find(ch => ch.name === 'mimic-logs' && ch.isTextBased());
+        if (existingCh) {
+          logChannelId = existingCh.id;
+          // Cache it
+          if (!interaction.client.mimicLogChannel) interaction.client.mimicLogChannel = new Map();
+          interaction.client.mimicLogChannel.set(interaction.guild.id, logChannelId);
+          // Save to DB
+          if (supabase) {
+            try {
+              await supabase
+                .from('mimic_log_channel')
+                .upsert({ guild_id: interaction.guild.id, channel_id: existingCh.id, channel_name: existingCh.name }, { onConflict: 'guild_id' });
+            } catch (e) { console.error('[MIMIC LOG] Auto-save channel error:', e.message); }
+          }
         }
       }
 
       if (logChannelId) {
         try {
           const logCh = await interaction.client.channels.fetch(logChannelId).catch(() => null);
-          if (logCh) {
+          if (logCh && logCh.isSendable()) {
             const logEmbed = new EmbedBuilder()
               .setColor(0x2B2D31)
               .setAuthor({ name: `🎭 ${interaction.user.username} used /mimic`, iconURL: interaction.user.displayAvatarURL({ dynamic: true, size: 128 }) })
@@ -187,15 +206,14 @@ module.exports = {
               .setFooter({ text: `User ID: ${interaction.user.id} | Target ID: ${targetUser.id}` })
               .setTimestamp();
             await logCh.send({ embeds: [logEmbed] });
-            console.log(`[MIMIC LOG] ✅ Sent log to channel ${logCh.name} (${logCh.id})`);
+          } else if (logCh) {
+            console.error(`[MIMIC LOG] ❌ Channel ${logCh.name} exists but bot can't send messages — check permissions`);
           } else {
-            console.error(`[MIMIC LOG] ❌ Could not fetch channel ${logChannelId} — it may have been deleted`);
+            console.error(`[MIMIC LOG] ❌ Channel ${logChannelId} not found — may have been deleted`);
           }
         } catch (err) {
-          console.error('[MIMIC LOG] ❌ Failed to send mimic log:', err.message);
+          console.error('[MIMIC LOG] ❌ Failed to send:', err.message);
         }
-      } else {
-        console.log(`[MIMIC LOG] No log channel set — skipping log`);
       }
 
       await interaction.reply({
