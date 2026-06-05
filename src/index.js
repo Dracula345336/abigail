@@ -635,8 +635,10 @@ client.once(Events.ClientReady, async () => {
     try {
       const { data: maData, error: maErr } = await supabase
         .from('mimic_access')
-        .select('guild_id, user_id');
-      if (!maErr && maData) {
+        .select('guild_id, user_id, username');
+      if (maErr) {
+        console.error('❌ Failed to load mimic_access:', maErr.message);
+      } else if (maData) {
         for (const row of maData) {
           if (!client.mimicAccess) client.mimicAccess = new Map();
           if (!client.mimicAccess.has(row.guild_id)) client.mimicAccess.set(row.guild_id, new Set());

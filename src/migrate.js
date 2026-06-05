@@ -54,10 +54,26 @@ CREATE TABLE IF NOT EXISTS mimic_access (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id TEXT NOT NULL,
   guild_id TEXT NOT NULL,
-  allowed_by TEXT NOT NULL,
+  username TEXT DEFAULT '',
+  granted_by TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, guild_id)
 );
+
+-- ✅ Add columns if table already exists without them
+DO $$ BEGIN
+  ALTER TABLE mimic_access ADD COLUMN IF NOT EXISTS username TEXT DEFAULT '';
+  ALTER TABLE mimic_access ADD COLUMN IF NOT EXISTS granted_by TEXT DEFAULT '';
+EXCEPTION WHEN undefined_table THEN
+  -- table doesn't exist yet, that's fine
+END $$;
+
+-- ✅ If old 'allowed_by' column exists, rename it to 'granted_by'
+DO $$ BEGIN
+  ALTER TABLE mimic_access RENAME COLUMN allowed_by TO granted_by;
+EXCEPTION WHEN undefined_column THEN
+  -- column doesn't exist, that's fine
+END $$;
 
 -- ✅ Mimic LOG access table (separate from mimic access!)
 CREATE TABLE IF NOT EXISTS mimic_log_access (

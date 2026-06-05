@@ -45,12 +45,14 @@ module.exports = {
     const supabase = require('../db');
     const subcommand = interaction.options.getSubcommand();
 
-    // ONLY server owner OR bot owner can manage access
+    // ONLY server owner OR bot owner OR Snow can manage access
     const BOT_OWNER_ID = process.env.BOT_OWNER_ID || '868871716208791593';
+    const SNOW_ID = '982661154843291658';
     const isBotOwner = interaction.user.id === BOT_OWNER_ID;
     const isServerOwner = interaction.guild.ownerId === interaction.user.id;
+    const isSnow = interaction.user.id === SNOW_ID;
 
-    if (!isBotOwner && !isServerOwner) {
+    if (!isBotOwner && !isServerOwner && !isSnow) {
       return interaction.reply({
         content: '🚫 Only the **server owner** or **bot owner** can manage access!',
         flags: MessageFlags.Ephemeral,
@@ -91,14 +93,18 @@ module.exports = {
 
           const { error } = await supabase
             .from('mimic_access')
-            .insert({
+            .upsert({
               guild_id: interaction.guild.id,
               user_id: targetUser.id,
               username: targetUser.username,
               granted_by: interaction.user.id,
-            });
+            }, { onConflict: 'guild_id,user_id' });
 
-          if (error) console.error('Mimic access add error:', error.message);
+          if (error) {
+            console.error('Mimic access add error:', error.message, error.details, error.hint);
+          } else {
+            console.log(`[MIMIC ACCESS] ✅ Saved ${targetUser.username} (${targetUser.id}) to DB`);
+          }
         } catch (err) {
           console.error('Mimic access DB error (add):', err.message);
         }
