@@ -28,6 +28,8 @@ A romantic Discord bot with AFK tracking and Mimic features, built with Discord.
 - When you send **any message** while AFK, your status is automatically removed and you'll get a welcome-back message
 - When someone **mentions** an AFK user, they'll be notified that the user is away (with a 30-second cooldown to prevent spam)
 
+> 💖 **See message previews** — check out [`AFK-DEMO.md`](AFK-DEMO.md) for short & clean previews of every AFK message the bot sends.
+
 ## ⚙️ Setup
 
 ### Prerequisites
@@ -158,6 +160,7 @@ abigal/
 ├── Dockerfile              # Docker deployment config
 ├── package.json            # NPM manifest
 ├── README.md               # This file
+├── AFK-DEMO.md             # AFK message previews
 └── src/
     ├── index.js            # Main bot entry point + auto command registration
     ├── deploy-commands.js  # Standalone command registration script (optional)
