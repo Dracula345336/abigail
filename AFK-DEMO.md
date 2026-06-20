@@ -16,7 +16,8 @@ Triggered when a user goes AFK.
 👤 Dracula is now AFK
 
 Off you go, my love! Come back soon 💖
-📝 sleeping • ⏱️ just now
+📝 Reason: sleeping
+⏱️ Went AFK: June 20, 2026 8:30 PM (just now)
 ```
 
 **Random lines picked from `src/messages.js` → `AFK_SET_MESSAGES`:**
@@ -39,7 +40,8 @@ Triggered when a user goes on a break.
 👤 Dracula is now on a break
 
 Break time, darling ☕ Rest up! 💕
-📝 lunch • ⏱️ just now
+📝 Reason: lunch
+⏱️ Went AFK: June 20, 2026 8:30 PM (just now)
 ```
 
 **Random lines picked from `src/messages.js` → `AFK_BREAK_MESSAGES`:**

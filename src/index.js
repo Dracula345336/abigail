@@ -3324,7 +3324,8 @@ client.on('messageCreate', async (message) => {
       return message.reply('💔 Something went wrong! **Quick fix:** Go to Supabase Dashboard → SQL Editor → Run: `ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;`').catch(console.error);
     }
 
-    const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n📝 **Reason:** \`${reason}\` • ⏱️ <t:${Math.floor(Date.now() / 1000)}:R>`;
+    const afkTs = Math.floor(Date.now() / 1000);
+    const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n📝 **Reason:** \`${reason}\`\n⏱️ Went AFK: <t:${afkTs}:f> (<t:${afkTs}:R>)`;
 
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
