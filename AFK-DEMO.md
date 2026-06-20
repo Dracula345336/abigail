@@ -1,12 +1,15 @@
 # 🌙 AFK Message Demos
 
-Short & clean AFK message previews for the Abigail bot. All embeds use pink accents (`#FF69B4` / `#FF1493` / `#E91E63`) and the user's avatar as a thumbnail.
+Short & clean AFK message previews for the **Abigail** bot.
+All embeds use pink accents (`#FF69B4` / `#FF1493` / `#E91E63`) with the user's avatar as a thumbnail.
 
 ---
 
 ## 1. 🌙 AFK Set — `.afk [reason]` / `!afk [reason]`
 
 Triggered when a user goes AFK.
+
+**Example: `.afk sleeping`**
 
 ```
 🌙 AFK Mode Activated
@@ -16,13 +19,20 @@ Off you go, my love! Come back soon 💖
 📝 sleeping • ⏱️ just now
 ```
 
-Random message line is picked from `src/messages.js` → `AFK_SET_MESSAGES`.
+**Random lines picked from `src/messages.js` → `AFK_SET_MESSAGES`:**
+- `Sweetheart, you're now AFK 💕 I'll be right here 🌸`
+- `Off you go, my love! Come back soon 💖`
+- `Stepping away? I'll keep your spot warm 🧡`
+- `Take your time, darling 💫 we'll be here 💕`
+- `Going AFK, pretty soul? 🌙 Take care 🌺`
 
 ---
 
 ## 2. ☕ AFK Break — `.afk break [reason]` / `!afk break [reason]`
 
 Triggered when a user goes on a break.
+
+**Example: `.afk break lunch`**
 
 ```
 ☕ Break Time!
@@ -32,13 +42,19 @@ Break time, darling ☕ Rest up! 💕
 📝 lunch • ⏱️ just now
 ```
 
-Random message line is picked from `src/messages.js` → `AFK_BREAK_MESSAGES`.
+**Random lines picked from `src/messages.js` → `AFK_BREAK_MESSAGES`:**
+- `Break time, darling ☕ Rest up! 💕`
+- `Even stars need rest 🌟 enjoy your break! 🍵`
+- `Take a breath and relax, my love 💆`
+- `Stepping away? Enjoy the peace 💕`
+- `A little break goes a long way ☕ 🌸`
 
 ---
 
 ## 3. 💝 AFK Return — automatic
 
-Triggered automatically when an AFK user sends any message. Posted in the same channel, **auto-deletes after 5 seconds**.
+Triggered automatically when an AFK user sends any message.
+Posted in the same channel, **auto-deletes after 5 seconds**.
 
 ```
 💝 Welcome Back!
@@ -48,13 +64,21 @@ Look who's back! 😍
 📝 sleeping 💤 • ⏱️ Away for 2 hours 15 mins
 ```
 
-Random message line is picked from `src/messages.js` → `AFK_RETURN_MESSAGES`.
+**Random lines picked from `src/messages.js` → `AFK_RETURN_MESSAGES`:**
+- `Welcome back, my love! 💕`
+- `There you are, darling! 💌`
+- `You're back! The world feels whole 💖`
+- `My favorite person returned! 🌸`
+- `Oh, how I've missed you! 💝`
+- `The wait is over! 🦋 Welcome back 💕`
+- `Look who's back! 😍`
 
 ---
 
 ## 4. 🌙 AFK Mention — channel reply
 
-Triggered when someone pings an AFK user. Posted as a reply, **auto-deletes after 1 second** (30s cooldown per pinged user).
+Triggered when someone pings an AFK user.
+Posted as a reply, **auto-deletes after 1 second** (30s cooldown per pinged user).
 
 ```
 🌙 Dracula is AFK — `sleeping 💤` (2 hours 15 mins)
@@ -80,7 +104,8 @@ Sent via DM to the AFK user, telling them who pinged them and where.
 
 ## 6. 🔨 AFK Broken — `.afkbreak @user` / `!afkbreak @user`
 
-Triggered when the bot owner or Snow breaks someone's AFK. Posted in the channel where the command was used.
+Triggered when the bot owner or Snow breaks someone's AFK.
+Posted in the channel where the command was used.
 
 ```
 🔨 AFK Broken!
