@@ -2007,9 +2007,8 @@ client.on('messageCreate', async (message) => {
       .setColor(0xFF69B4)
       .setAuthor({ name: `${target.username}'s AFK was broken!`, iconURL: target.displayAvatarURL({ dynamic: true }) })
       .setTitle('🔨 AFK Broken!')
-      .setDescription(`**${message.author.username}** broke **${target.username}**'s AFK!\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``)
+      .setDescription(`**${message.author.username}** broke **${target.username}**'s AFK!\n📝 \`${afkData.reason}\` • ⏱️ \`${away}\``)
       .setThumbnail(target.displayAvatarURL({ dynamic: true, size: 256 }))
-      .setFooter({ text: `💨 Forcefully returned by ${message.author.username}` })
       .setTimestamp();
 
     await message.channel.send({ embeds: [breakEmbed] });
@@ -2020,12 +2019,9 @@ client.on('messageCreate', async (message) => {
         .setColor(0xFF69B4)
         .setTitle('🔨 Your AFK Was Broken!')
         .setDescription(
-          `**${message.author.username}** broke your AFK in **${message.guild.name}**!\n\n━━━━━━━━━━━━━━━━━━━\n` +
-          `┣ 📝 **Your Reason:** \`${afkData.reason}\`\n` +
-          `┣ ⏱️ **You Were Away For:** \`${away}\`\n` +
-          `┗ 💨 **Broken By:** ${message.author.username}`
+          `**${message.author.username}** broke your AFK in **${message.guild.name}**!\n` +
+          `📝 \`${afkData.reason}\` • ⏱️ \`${away}\``
         )
-        .setFooter({ text: '💕 Abigail — AFK Notification' })
         .setTimestamp();
       await target.send({ embeds: [dmEmbed] });
     } catch (e) { /* DM blocked */ }
@@ -3328,7 +3324,7 @@ client.on('messageCreate', async (message) => {
       return message.reply('💔 Something went wrong! **Quick fix:** Go to Supabase Dashboard → SQL Editor → Run: `ALTER TABLE afk_users DISABLE ROW LEVEL SECURITY;`').catch(console.error);
     }
 
-    const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${reason}\`\n┗ ⏱️ **Went away:** <t:${Math.floor(Date.now() / 1000)}:R>`;
+    const styledDesc = `${pick(isBreak ? AFK_BREAK_MESSAGES : AFK_SET_MESSAGES)}\n📝 **Reason:** \`${reason}\` • ⏱️ <t:${Math.floor(Date.now() / 1000)}:R>`;
 
     const embed = new EmbedBuilder()
       .setColor(0xFF69B4)
@@ -3336,7 +3332,6 @@ client.on('messageCreate', async (message) => {
       .setTitle(isBreak ? '☕ Break Time!' : '🌙 AFK Mode Activated')
       .setDescription(styledDesc)
       .setThumbnail(message.author.displayAvatarURL({ dynamic: true, size: 256 }))
-      .setFooter({ text: `💕 I'll be waiting for you, ${message.author.username}…` })
       .setTimestamp();
 
     const isOwner = message.guild.ownerId === message.author.id;
@@ -3370,7 +3365,7 @@ client.on('messageCreate', async (message) => {
 
     if (afkData) {
       const away = timeSince(afkData.afk_time);
-      const returnDesc = `Welcome back!\nI have removed your AFK status.\n\n━━━━━━━━━━━━━━━━━━━\n┣ 📝 **Reason:** \`${afkData.reason}\`\n┗ ⏱️ **Away For:** \`${away}\``;
+      const returnDesc = `${pick(AFK_RETURN_MESSAGES)}\n📝 \`${afkData.reason}\` • ⏱️ Away for \`${away}\``;
 
       const embed = new EmbedBuilder()
         .setColor(0xFF1493)
@@ -3378,7 +3373,6 @@ client.on('messageCreate', async (message) => {
         .setTitle('💝 Welcome Back!')
         .setDescription(returnDesc)
         .setThumbnail(afkData.avatar_url || message.author.displayAvatarURL({ dynamic: true, size: 256 }))
-        .setFooter({ text: "💫 So glad you're back!" })
         .setTimestamp();
       // Send in server channel — auto-delete after 5s
       console.log(`[AFK RETURN] Sending welcome back in channel: ${message.channel.name} (${message.channel.id})`);
@@ -3426,7 +3420,7 @@ client.on('messageCreate', async (message) => {
         if (mentionedAfk) {
           const away = timeSince(mentionedAfk.afk_time);
           // Quick channel message — auto-delete after 1s
-          const afkMsg = await message.reply({ content: `🌙 **${mentionedAfk.username}** is currently AFK! \`${mentionedAfk.reason}\` — Away for ${away}` }).catch(() => null);
+          const afkMsg = await message.reply({ content: `🌙 **${mentionedAfk.username}** is AFK — \`${mentionedAfk.reason}\` (${away})` }).catch(() => null);
           if (afkMsg) {
             setTimeout(() => { afkMsg.delete().catch(() => {}); }, 1000);
           }
@@ -3436,15 +3430,13 @@ client.on('messageCreate', async (message) => {
             const pingEmbed = new EmbedBuilder()
               .setColor(0xE91E63)
               .setAuthor({ name: `${message.author.username} pinged you!`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
-              .setTitle('📢 You Were Mentioned While AFK')
+              .setTitle('📢 Mentioned While AFK')
               .setDescription(
-                `━━━━━━━━━━━━━━━━━━━\n` +
-                `┣ 👤 **Who:** ${message.author.username} (<@${message.author.id}>)\n` +
-                `┣ 📢 **Channel:** <#${message.channel.id}> in **${message.guild.name}**\n` +
-                `┣ 💬 **Message:** ${message.content.length > 200 ? message.content.slice(0, 200) + '...' : message.content}\n` +
-                `┗ 🔗 **Jump:** [Click to view](${message.url})`
+                `👤 **Who:** ${message.author.username} (<@${message.author.id}>)\n` +
+                `📢 **Where:** <#${message.channel.id}> in **${message.guild.name}**\n` +
+                `💬 **Msg:** ${message.content.length > 150 ? message.content.slice(0, 150) + '...' : message.content}\n` +
+                `🔗 [Jump to message](${message.url})`
               )
-              .setFooter({ text: '💤 Abigail — AFK Notification' })
               .setTimestamp();
             await afkUser.send({ embeds: [pingEmbed] });
           } catch (e) {
